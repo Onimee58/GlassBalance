@@ -1,0 +1,6 @@
+# Cross-platform native desktop widgets (Qt 6)
+PySide6>=6.7,<7
+# Reading and writing Excel .xlsx workbooks
+openpyxl>=3.1,<4
+# AES-256-GCM encrypted email backups
+cryptography>=42,<49
