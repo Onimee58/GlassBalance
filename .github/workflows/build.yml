@@ -31,8 +31,10 @@ jobs:
           python -m pip install -r requirements-dev.txt
       - name: Run core tests
         run: python -m unittest discover -s tests -v
+      - name: Bundle lightweight maintainer avatar (optional)
+        run: python scripts/fetch_avatar.py
       - name: Build native desktop bundle
-        run: python -m PyInstaller --noconfirm --clean --windowed --onedir --name GlassBalance app.py
+        run: python -m PyInstaller --noconfirm --clean --windowed --onedir --name GlassBalance --add-data "glassbalance/assets:glassbalance/assets" app.py
       - name: Package platform bundle
         run: python scripts/package.py ${{ matrix.label }}
       - name: Publish build artifact
