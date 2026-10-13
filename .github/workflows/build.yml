@@ -3,7 +3,7 @@ name: Build desktop packages
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, 'v0.2.0-*']
     tags: ['v*']
 
 jobs:
@@ -31,8 +31,12 @@ jobs:
           python -m pip install -r requirements-dev.txt
       - name: Run core tests
         run: python -m unittest discover -s tests -v
+      - name: Bundle lightweight maintainer avatar (optional)
+        run: python scripts/fetch_avatar.py
+      - name: Ensure assets directory exists
+        run: python -c "from pathlib import Path; Path('glassbalance/assets').mkdir(parents=True, exist_ok=True)"
       - name: Build native desktop bundle
-        run: python -m PyInstaller --noconfirm --clean --windowed --onedir --name GlassBalance app.py
+        run: python scripts/build_bundle.py
       - name: Package platform bundle
         run: python scripts/package.py ${{ matrix.label }}
       - name: Publish build artifact

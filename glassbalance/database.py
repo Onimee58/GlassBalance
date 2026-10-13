@@ -118,6 +118,15 @@ class Ledger:
     def edit(self, entry_id: int, dt: str, description: str, mills: int,
              status: str="confirmed") -> None:
         dt,description,mills,status=self._check_entry(dt,description,mills,status)
+        # Preserve confirmed loan relationships: unlink before changing linked amounts.
+        original=self.conn.execute("SELECT amount_mills FROM transactions WHERE id=?",(entry_id,)).fetchone()
+        if original and int(original[0]) != mills:
+            loan_tables={row[0] for row in self.conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if 'loan_records' in loan_tables:
+                linked=self.conn.execute("""SELECT 1 FROM loan_records WHERE origin_tx_id=?
+                    UNION SELECT 1 FROM loan_repayments WHERE repayment_tx_id=?""",(entry_id,entry_id)).fetchone()
+                if linked:
+                    raise ValueError("This transaction is linked to a loan. Unlink or remove its loan tracking before changing the amount.")
         with self.conn:
             cur=self.conn.execute("""UPDATE transactions SET tx_date=?,description=?,
                 amount_mills=?,date_status=?,updated_at=? WHERE id=?""",

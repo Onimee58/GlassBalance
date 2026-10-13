@@ -1,3 +1,2 @@
-"""GlassBalance: a local-first, open-source personal balance ledger."""
-
-__version__ = "0.1.0"
+"""GlassBalance: local-first personal finance ledger."""
+__version__ = "0.2.0-alpha.3"

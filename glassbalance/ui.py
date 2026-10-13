@@ -10,13 +10,13 @@ from datetime import date, datetime
 from pathlib import Path
 
 from PySide6.QtCore import QDate, QSettings, Qt, QStandardPaths
-from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPen, QRadialGradient
+from PySide6.QtGui import QColor, QFont, QIcon, QLinearGradient, QPainter, QPen, QRadialGradient, QPixmap
 from PySide6.QtWidgets import (
     QApplication, QAbstractItemView, QComboBox, QDateEdit, QDialog,
     QDialogButtonBox, QFileDialog, QFormLayout, QFrame, QGridLayout,
     QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMainWindow, QMessageBox,
     QPushButton, QSizePolicy, QTabWidget, QTableWidget, QTableWidgetItem,
-    QVBoxLayout, QWidget,
+    QVBoxLayout, QWidget, QStackedWidget, QGraphicsDropShadowEffect, QInputDialog, QScrollArea,
 )
 
 from . import __version__
@@ -24,41 +24,49 @@ from .database import Entry, Ledger
 from .email_backup import decrypt_snapshot, download_latest_backup, send_backup
 from .importer import load_import
 from .money import as_mills, display_money, mills_as_decimal
+from . import unbalanced
 
 
 STYLE = """
-QWidget { color: #e8edf8; font-family: "Segoe UI", "Inter", sans-serif; font-size: 13px; }
-QFrame#glass { background-color: rgba(19, 32, 51, 225); border: 1px solid rgba(153, 187, 219, 45); border-radius: 18px; }
-QFrame#stat { background-color: rgba(22, 38, 58, 218); border: 1px solid rgba(158, 189, 222, 46); border-radius: 16px; }
-QLabel#brand { color: #fafcff; font-size: 22px; font-weight: 800; letter-spacing: 1px; }
-QLabel#title { color: #fafcff; font-size: 27px; font-weight: 730; }
-QLabel#muted { color: #9daec4; font-size: 12px; }
-QLabel#section { color: #ebf5ff; font-size: 17px; font-weight: 700; }
-QLabel#statTitle { color: #acbcd0; font-size: 12px; font-weight: 600; }
-QLabel#value { color: #fafcff; font-size: 30px; font-weight: 750; }
-QLabel#valueIn { color: #9de7c5; font-size: 25px; font-weight: 700; }
-QLabel#valueOut { color: #ffb9b9; font-size: 25px; font-weight: 700; }
-QLabel#overline { color: #8ad9d4; font-size: 11px; font-weight: 700; letter-spacing: 1.3px; }
-QPushButton { background-color: rgba(105, 134, 169, 35); color: #edf6ff; border: 1px solid rgba(155, 191, 224, 54); border-radius: 10px; padding: 10px 14px; font-weight: 600; min-height: 19px; }
-QPushButton:hover { background-color: rgba(112, 150, 190, 66); border-color: rgba(171, 213, 237, 102); }
-QPushButton:pressed { background-color: rgba(112, 150, 190, 90); }
-QPushButton:disabled { color: #66788a; background-color: rgba(70, 87, 108, 20); border-color: rgba(100, 114, 136, 24); }
-QPushButton#primary { background-color: #55c4b9; color: #0d2730; border: 1px solid #65dfcd; font-weight: 800; }
-QPushButton#primary:hover { background-color: #83e4da; }
-QPushButton#danger { color: #ffd1d5; }
-QPushButton#danger:hover { background-color: rgba(180, 60, 70, 75); }
-QLineEdit, QComboBox, QDateEdit { background-color: rgba(10, 21, 37, 190); color: #eef7ff; border: 1px solid #354b62; border-radius: 10px; padding: 9px 11px; min-height: 20px; selection-background-color: #167e87; }
-QLineEdit:focus, QComboBox:focus, QDateEdit:focus { border: 1px solid #76d6cc; }
-QComboBox::drop-down, QDateEdit::drop-down { border: none; width: 20px; }
+QWidget { color: #ecf2fa; font-family: "Inter", "Segoe UI", "Noto Sans", sans-serif; font-size: 13px; }
+QScrollArea#sidebarScroll { background-color: #091221; border: none; }
+QWidget#sidebarViewport { background-color: #091221; }
+QWidget#sidebarContent { background-color: #091221; }
+QFrame#sidebar { background-color: #091221; border: 1px solid rgba(143, 177, 208, 27); border-radius: 20px; }
+QFrame#glass { background-color: rgba(18, 32, 51, 222); border: 1px solid rgba(152, 190, 223, 43); border-radius: 20px; }
+QFrame#stat { background-color: rgba(18, 32, 51, 218); border: 1px solid rgba(152, 190, 223, 43); border-radius: 18px; }
+QFrame#hero { background-color: rgba(22, 44, 64, 230); border: 1px solid rgba(119, 207, 203, 72); border-radius: 22px; }
+QLabel#brand { color: #fbfdff; font-size: 18px; font-weight: 800; }
+QLabel#title { color: #fafcff; font-size: 28px; font-weight: 750; }
+QLabel#muted { color: #a4b8cd; font-size: 12px; }
+QLabel#section { color: #fafcff; font-size: 17px; font-weight: 740; }
+QLabel#statTitle { color: #9fb5c8; font-size: 11px; font-weight: 700; }
+QLabel#value { color: #fbfdff; font-size: 37px; font-weight: 800; }
+QLabel#valueIn { color: #a2ebd3; font-size: 24px; font-weight: 760; }
+QLabel#valueOut { color: #ffbabf; font-size: 24px; font-weight: 760; }
+QLabel#overline { color: #78dace; font-size: 11px; font-weight: 750; }
+QPushButton { background-color: rgba(96, 132, 166, 30); color: #e8f2fc; border: 1px solid rgba(162, 194, 220, 44); border-radius: 11px; padding: 10px 14px; font-weight: 650; min-height: 19px; text-align: center; }
+QPushButton:hover { background-color: rgba(100, 155, 182, 65); border-color: rgba(140, 223, 215, 90); }
+QPushButton:pressed { background-color: rgba(112, 150, 190, 92); }
+QPushButton:disabled { color: #687f94; border-color: rgba(100, 114, 136, 24); }
+QPushButton#nav { text-align: left; padding: 12px 17px; background: transparent; border: 1px solid transparent; }
+QPushButton#nav:hover { background: rgba(111, 161, 189, 35); }
+QPushButton#navActive { text-align: left; padding: 12px 17px; background-color: rgba(68, 169, 164, 37); border: 1px solid rgba(105, 202, 197, 72); color: #b3fff2; }
+QPushButton#primary { background-color: #81e0ce; color: #082a32; border: 1px solid #a0f8e3; font-weight: 800; }
+QPushButton#primary:hover { background-color: #a8f3e3; }
+QPushButton#danger { color: #ffbec4; }
+QPushButton#danger:hover { background-color: rgba(180, 60, 70, 70); }
+QLineEdit, QComboBox, QDateEdit { background-color: rgba(10, 21, 37, 188); color: #edf7ff; border: 1px solid #344a61; border-radius: 10px; padding: 9px 11px; min-height: 20px; selection-background-color: #167e87; }
+QLineEdit:focus, QComboBox:focus, QDateEdit:focus { border: 1px solid #79ddd3; }
+QComboBox::drop-down, QDateEdit::drop-down { border: none; width: 22px; }
 QComboBox QAbstractItemView { color: #f3f6fc; background: #1b2a3e; selection-background-color: #2d606b; border: 1px solid #526479; }
 QTabWidget::pane { background: transparent; border: none; }
-QTabBar::tab { color: #9fb1c8; background: transparent; padding: 12px 22px; border: none; border-bottom: 2px solid transparent; font-weight: 700; }
-QTabBar::tab:selected { color: #99eae1; border-bottom: 2px solid #55c4b9; }
+QTabBar::tab { color: #9fb1c8; background: transparent; padding: 12px 20px; border: none; border-bottom: 2px solid transparent; font-weight: 700; }
+QTabBar::tab:selected { color: #a3eee2; border-bottom: 2px solid #81e0ce; }
 QTabBar::tab:hover { color: white; }
-QTableWidget { background-color: transparent; alternate-background-color: rgba(105, 134, 167, 10); color: #edf3f9; border: none; gridline-color: transparent; selection-background-color: rgba(70, 145, 158, 76); selection-color: white; padding: 1px; outline: none; }
+QTableWidget { background: transparent; alternate-background-color: rgba(90, 140, 175, 9); color: #edf3f9; border: none; gridline-color: transparent; selection-background-color: rgba(70, 145, 158, 76); selection-color: white; outline: none; }
 QTableWidget::item { padding: 7px 8px; border-bottom: 1px solid rgba(120, 160, 190, 16); }
-QTableWidget::item:selected { background-color: rgba(72, 147, 157, 100); }
-QHeaderView::section { color: #96aabd; background: rgba(20, 36, 56, 185); border: none; padding: 10px 11px; font-weight: 650; }
+QHeaderView::section { color: #a0b6c8; background: rgba(23, 42, 60, 190); border: none; padding: 11px; font-weight: 700; }
 QTableCornerButton::section { background: transparent; border: none; }
 QScrollBar:vertical { background: rgba(22, 37, 53, 95); width: 11px; }
 QScrollBar::handle:vertical { background: #536b80; border-radius: 5px; min-height: 30px; }
@@ -66,9 +74,9 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
 QScrollBar:horizontal { height: 10px; background: rgba(22, 37, 53, 95); }
 QScrollBar::handle:horizontal { background: #536b80; border-radius: 4px; min-width: 30px; }
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; }
-QDialog { background-color: #18293f; }
+QDialog { background-color: #17283d; }
 QLabel { background: transparent; }
-QStatusBar { color: #95b3c1; background: transparent; }
+QStatusBar { color: #94acbe; background: transparent; }
 """
 
 
@@ -91,6 +99,60 @@ class GradientCanvas(QWidget):
             p.setBrush(g)
             p.drawEllipse(int(x-r),int(y-r),int(r*2),int(r*2))
         p.end()
+
+
+class BalanceChart(QWidget):
+    """Native lightweight balance plot; no web runtime or external plotting dependency."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.points=[]
+        self.setMinimumHeight(115)
+        self.setAccessibleName("Balance trend across the last 90 transactions")
+
+    def set_entries(self, entries):
+        self.points=[entry.running_mills for entry in entries[-90:]]
+        self.update()
+
+    def paintEvent(self, event):
+        painter=QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        width,height=self.width(),self.height()
+        if width<10 or height<10:
+            return
+        painter.setPen(QPen(QColor(130,170,184,34),1))
+        for f in (0.2,0.5,0.8):
+            y=round(height*f)
+            painter.drawLine(0,y,width,y)
+        vals=self.points
+        if not vals:
+            painter.setPen(QColor('#95b2bf'))
+            painter.drawText(self.rect(),Qt.AlignmentFlag.AlignCenter,'Your balance trend will appear here')
+            return
+        if len(vals)==1:
+            vals=[vals[0],vals[0]]
+        lo,hi=min(vals),max(vals)
+        spread=max(hi-lo,1)
+        from PySide6.QtCore import QPointF
+        from PySide6.QtGui import QPainterPath
+        coords=[QPointF(5+(width-10)*i/(len(vals)-1), 10+(height-25)*(hi-v)/spread)
+                for i,v in enumerate(vals)]
+        trace=QPainterPath(coords[0])
+        for point in coords[1:]:
+            trace.lineTo(point)
+        filled=QPainterPath(trace)
+        filled.lineTo(coords[-1].x(),height)
+        filled.lineTo(coords[0].x(),height)
+        filled.closeSubpath()
+        gradient=QLinearGradient(0,0,0,height)
+        gradient.setColorAt(0,QColor(92,217,193,85))
+        gradient.setColorAt(1,QColor(92,217,193,0))
+        painter.fillPath(filled,gradient)
+        painter.setPen(QPen(QColor('#8ae9d4'),2.6))
+        painter.drawPath(trace)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor('#d7fff4'))
+        painter.drawEllipse(coords[-1],4,4)
+        painter.end()
 
 
 def label(text: str, obj: str = "", wrap: bool = False) -> QLabel:
@@ -337,13 +399,22 @@ def backup_folder() -> Path:
     return root
 
 
+def app_icon() -> QIcon:
+    """Resolve bundled icon in both source and PyInstaller installations."""
+    base=Path(getattr(sys,"_MEIPASS",Path(__file__).resolve().parent.parent))
+    path=base/"glassbalance"/"assets"/"glassbalance_icon.png"
+    return QIcon(str(path)) if path.is_file() else QIcon()
+
+
 class Window(QMainWindow):
     def __init__(self, db_path: str | Path | None=None):
         super().__init__()
         self.setWindowTitle(f"GlassBalance  ·  Personal ledger  ·  v{__version__}")
-        self.resize(1280,820)
-        self.setMinimumSize(960,640)
+        self.setWindowIcon(app_icon())
+        self.resize(1350,860)
+        self.setMinimumSize(1010,710)
         self.db=Ledger(db_path or (data_folder()/"balance.sqlite"))
+        unbalanced.install(self.db)
         self.setStyleSheet(STYLE)
         self.canvas=GradientCanvas()
         self.setCentralWidget(self.canvas)
@@ -353,74 +424,123 @@ class Window(QMainWindow):
 
     def build(self):
         root=QHBoxLayout(self.canvas)
-        root.setContentsMargins(22,22,22,20)
-        root.setSpacing(21)
-        left=panel()
-        left.setFixedWidth(220)
-        sidebar=QVBoxLayout(left)
-        sidebar.setContentsMargins(19,22,19,17)
-        sidebar.setSpacing(10)
+        root.setContentsMargins(20,20,20,16)
+        root.setSpacing(18)
+
+        left=panel("sidebar")
+        left.setFixedWidth(213)
+        sidebar_shell=QVBoxLayout(left)
+        sidebar_shell.setContentsMargins(0,0,0,0)
+        sidebar_shell.setSpacing(0)
+        side_scroll=QScrollArea(left)
+        side_scroll.setObjectName("sidebarScroll")
+        side_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        side_scroll.viewport().setObjectName("sidebarViewport")
+        side_scroll.viewport().setStyleSheet("background-color: #091221;")
+        side_scroll.setWidgetResizable(True)
+        side_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        side_content=QWidget()
+        side_content.setObjectName("sidebarContent")
+        side_content.setStyleSheet("background-color: #091221;")
+        sidebar=QVBoxLayout(side_content)
+        sidebar.setContentsMargins(14,18,14,14)
+        sidebar.setSpacing(6)
+        side_scroll.setWidget(side_content)
+        sidebar_shell.addWidget(side_scroll)
         brand_row=QHBoxLayout()
-        logo=label("◈")
-        logo.setStyleSheet("color:#75e4d6; font-size:27px;")
-        brand_row.addWidget(logo)
-        brand_row.addWidget(label("BALANCE","brand"),1)
+        mark=QLabel()
+        mark.setFixedSize(36,36)
+        mark.setPixmap(app_icon().pixmap(34,34))
+        brand_row.addWidget(mark)
+        brand_row.addWidget(label("GlassBalance","brand"),1)
         sidebar.addLayout(brand_row)
-        sidebar.addWidget(label("A quieter way to track money.","muted",True))
-        sidebar.addSpacing(25)
-        sidebar.addWidget(label("YOUR LEDGER","overline"))
-        self.side_new=button("＋  New transaction","primary")
-        self.side_import=button("↳  Import Excel / CSV")
-        self.side_export=button("⇧  Export all data")
-        self.side_backup=button("▣  Save local backup")
-        self.side_restore=button("↩  Restore backup")
-        self.side_email=button("✉  Email backups")
-        self.side_opening=button("◉  Opening balance")
-        for b in (self.side_new,self.side_import,self.side_export,self.side_backup,
-                  self.side_restore,self.side_email,self.side_opening):
-            b.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Fixed)
-            sidebar.addWidget(b)
+        sidebar.addWidget(label("YOUR MONEY, IN FOCUS","muted"))
+        sidebar.addSpacing(12)
+        sidebar.addWidget(label("WORKSPACE","overline"))
+        self.nav_overview=button("▦    Overview","navActive")
+        self.nav_activity=button("≡    Transactions","nav")
+        self.nav_monthly=button("▤    Monthly history","nav")
+        self.nav_balance_search=button("⌕    Balance Search","nav")
+        self.nav_unbalanced=button("⇄    Unbalanced","nav")
+        for control in (self.nav_overview,self.nav_activity,self.nav_monthly,self.nav_balance_search,self.nav_unbalanced):
+            sidebar.addWidget(control)
+        sidebar.addSpacing(7)
+        sidebar.addWidget(label("TOOLS","overline"))
+        self.side_import=button("↳    Import Excel / CSV","nav")
+        self.side_export=button("⇧    Export ledger","nav")
+        self.side_backup=button("▣    Save backup","nav")
+        self.side_restore=button("↶    Restore backup","nav")
+        self.side_email=button("✉    Encrypted email","nav")
+        self.side_opening=button("◉    Opening balance","nav")
+        self.side_about=button("ⓘ    About GlassBalance","nav")
+        for control in (self.side_import,self.side_export,self.side_backup,
+                        self.side_restore,self.side_email,self.side_opening,self.side_about):
+            sidebar.addWidget(control)
         sidebar.addStretch()
-        sidebar.addWidget(label("●  Offline-first","overline"))
-        sidebar.addWidget(label("Your database stays on this device unless you export it or deliberately send an encrypted email backup.","muted",True))
-        sidebar.addSpacing(8)
-        sidebar.addWidget(label(f"VERSION {__version__}  •  OPEN SOURCE","muted"))
+        sidebar.addWidget(label("●  LOCAL & OFFLINE","overline"))
+        sidebar.addWidget(label("Your ledger stays on this device unless you choose to share a backup.","muted",True))
+        sidebar.addSpacing(6)
+        sidebar.addWidget(label(f"v{__version__}  ·  ALPHA PREVIEW","muted"))
         root.addWidget(left)
 
         main=QWidget()
         main.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Expanding)
         root.addWidget(main,1)
         content=QVBoxLayout(main)
-        content.setContentsMargins(0,2,1,0)
-        content.setSpacing(17)
+        content.setContentsMargins(0,5,0,0)
+        content.setSpacing(15)
         header=QHBoxLayout()
-        text_block=QVBoxLayout()
-        text_block.setSpacing(4)
-        text_block.addWidget(label("PERSONAL FINANCE  /  LEDGER","overline"))
-        text_block.addWidget(label("Your balance, at a glance","title"))
-        text_block.addWidget(label("Every entry, every month, one continuous history.","muted"))
-        header.addLayout(text_block,1)
-        create=button("＋  Add transaction","primary")
-        create.clicked.connect(self.add_transaction)
-        header.addWidget(create,alignment=Qt.AlignmentFlag.AlignBottom)
+        header_text=QVBoxLayout()
+        header_text.setSpacing(5)
+        header_text.addWidget(label("YOUR PERSONAL LEDGER  /  OVERVIEW","overline"))
+        header_text.addWidget(label("Money, made clearer.","title"))
+        header_text.addWidget(label("A complete picture of every transaction.","muted"))
+        header.addLayout(header_text,1)
+        self.side_new=button("＋  New transaction","primary")
+        header.addWidget(self.side_new,alignment=Qt.AlignmentFlag.AlignVCenter)
         content.addLayout(header)
 
-        cards=QHBoxLayout()
-        cards.setSpacing(13)
-        self.balance_value=self._stat(cards,"TOTAL LEDGER BALANCE","$0.00","value",
-                                      "Opening balance + all transactions")
-        self.income_value=self._stat(cards,"MONEY IN THIS MONTH","$0.00","valueIn",
-                                     "Positive transactions")
-        self.expense_value=self._stat(cards,"MONEY OUT THIS MONTH","$0.00","valueOut",
-                                      "Negative transactions")
-        content.addLayout(cards)
+        summary_row=QHBoxLayout()
+        summary_row.setSpacing(13)
+        hero=panel("hero")
+        hero.setMinimumHeight(208)
+        hero_layout=QVBoxLayout(hero)
+        hero_layout.setContentsMargins(22,18,22,17)
+        hero_layout.setSpacing(4)
+        hero_layout.addWidget(label("TOTAL BALANCE","statTitle"))
+        self.balance_value=label("$0.00","value")
+        hero_layout.addWidget(self.balance_value)
+        hero_layout.addWidget(label("Opening balance + every recorded transaction","muted"))
+        self.trend=BalanceChart()
+        hero_layout.addWidget(self.trend,1)
+        summary_row.addWidget(hero,3)
+        mini=QVBoxLayout()
+        mini.setSpacing(12)
+        income=panel("stat")
+        i_layout=QVBoxLayout(income)
+        i_layout.setContentsMargins(17,15,15,14)
+        i_layout.addWidget(label("INCOME  ·  THIS MONTH","statTitle"))
+        self.income_value=label("$0.00","valueIn")
+        i_layout.addWidget(self.income_value)
+        i_layout.addWidget(label("Positive transactions","muted"))
+        mini.addWidget(income)
+        expense=panel("stat")
+        e_layout=QVBoxLayout(expense)
+        e_layout.setContentsMargins(17,15,15,14)
+        e_layout.addWidget(label("EXPENSES  ·  THIS MONTH","statTitle"))
+        self.expense_value=label("$0.00","valueOut")
+        e_layout.addWidget(self.expense_value)
+        e_layout.addWidget(label("Negative transactions","muted"))
+        mini.addWidget(expense)
+        summary_row.addLayout(mini,2)
+        content.addLayout(summary_row)
 
         activity=panel()
         activity_layout=QVBoxLayout(activity)
         activity_layout.setContentsMargins(19,17,19,15)
-        activity_layout.setSpacing(13)
+        activity_layout.setSpacing(12)
         activity_header=QHBoxLayout()
-        activity_header.addWidget(label("Activity","section"))
+        activity_header.addWidget(label("Ledger activity","section"))
         activity_header.addStretch()
         self.count_label=label("0 transactions","muted")
         activity_header.addWidget(self.count_label)
@@ -428,9 +548,8 @@ class Window(QMainWindow):
         filters=QHBoxLayout()
         filters.setSpacing(9)
         self.search=QLineEdit()
-        self.search.setPlaceholderText("Search transactions…")
+        self.search.setPlaceholderText("Search descriptions or periods…")
         self.search.setClearButtonEnabled(True)
-        self.search.setMinimumWidth(150)
         filters.addWidget(self.search,1)
         self.period=QComboBox()
         self.period.addItems(["All dates","This month","Previous month","Custom dates"])
@@ -453,27 +572,67 @@ class Window(QMainWindow):
 
         self.tabs=QTabWidget()
         self.table=QTableWidget(0,5)
-        self.table.setHorizontalHeaderLabels(["DATE","DESCRIPTION","CHANGE","BALANCE","DATE STATUS"])
+        self.table.setHorizontalHeaderLabels(["DATE","DESCRIPTION","CHANGE","RUNNING BALANCE","ACCURACY"])
         self._setup_table(self.table)
-        header=self.table.horizontalHeader()
-        header.setSectionResizeMode(0,QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(1,QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(2,QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(3,QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(4,QHeaderView.ResizeMode.ResizeToContents)
-        self.table.setMinimumHeight(260)
+        th=self.table.horizontalHeader()
+        for i in (0,2,3,4):
+            th.setSectionResizeMode(i,QHeaderView.ResizeMode.ResizeToContents)
+        th.setSectionResizeMode(1,QHeaderView.ResizeMode.Stretch)
+        self.table.setMinimumHeight(220)
         self.tabs.addTab(self.table,"Transactions")
         self.monthly=QTableWidget(0,5)
-        self.monthly.setHorizontalHeaderLabels(["MONTH","MONEY IN","MONEY OUT","NET CHANGE","END BALANCE"])
+        self.monthly.setHorizontalHeaderLabels(["MONTH","INCOME","EXPENSES","NET CHANGE","END BALANCE"])
         self._setup_table(self.monthly)
         mh=self.monthly.horizontalHeader()
         for col in range(5):
             mh.setSectionResizeMode(col,QHeaderView.ResizeMode.Stretch)
         self.tabs.addTab(self.monthly,"Monthly history")
+        self.balance_search_tab=QWidget()
+        bs=QVBoxLayout(self.balance_search_tab)
+        bs.addWidget(label("Search all transactions and see the signed net amount for any name or phrase.","muted",True))
+        self.balance_query=QLineEdit()
+        self.balance_query.setPlaceholderText("Try: ammu")
+        self.balance_query.setClearButtonEnabled(True)
+        bs.addWidget(self.balance_query)
+        bs_totals=QHBoxLayout()
+        self.bs_in=label("Money in: $0.00","valueIn")
+        self.bs_out=label("Money out: $0.00","valueOut")
+        self.bs_net=label("Net: $0.00","section")
+        for widget in (self.bs_in,self.bs_out,self.bs_net): bs_totals.addWidget(widget)
+        bs.addLayout(bs_totals)
+        self.bs_table=QTableWidget(0,3)
+        self.bs_table.setHorizontalHeaderLabels(["DATE","DESCRIPTION","AMOUNT"])
+        self._setup_table(self.bs_table)
+        self.bs_table.horizontalHeader().setSectionResizeMode(1,QHeaderView.ResizeMode.Stretch)
+        bs.addWidget(self.bs_table,1)
+        self.tabs.addTab(self.balance_search_tab,"Balance Search")
+        self.unbalanced_tab=QWidget()
+        ub=QVBoxLayout(self.unbalanced_tab)
+        ub.addWidget(label("Loan tracking is separate from the ledger. Nothing is settled without confirmation.","muted",True))
+        ub_tools=QHBoxLayout()
+        self.loan_new=button("Track selected transaction as loan","primary")
+        self.loan_suggest=button("Review possible refunds")
+        self.loan_unlink=button("Unlink repayment")
+        for b in (self.loan_new,self.loan_suggest,self.loan_unlink): ub_tools.addWidget(b)
+        ub.addLayout(ub_tools)
+        self.ub_summary=label("Outstanding balances","section")
+        ub.addWidget(self.ub_summary)
+        self.loan_table=QTableWidget(0,5)
+        self.loan_table.setHorizontalHeaderLabels(["PERSON","TYPE","ORIGINAL","REPAID","OUTSTANDING"])
+        self._setup_table(self.loan_table)
+        self.loan_table.horizontalHeader().setSectionResizeMode(0,QHeaderView.ResizeMode.Stretch)
+        ub.addWidget(self.loan_table,2)
+        ub.addWidget(label("Linked repayments for selected loan · select a row to unlink a repayment","muted"))
+        self.repay_table=QTableWidget(0,3)
+        self.repay_table.setHorizontalHeaderLabels(["DATE","DESCRIPTION","AMOUNT"])
+        self._setup_table(self.repay_table)
+        self.repay_table.horizontalHeader().setSectionResizeMode(1,QHeaderView.ResizeMode.Stretch)
+        ub.addWidget(self.repay_table,1)
+        self.tabs.addTab(self.unbalanced_tab,"Unbalanced")
         activity_layout.addWidget(self.tabs,1)
         bottom=QHBoxLayout()
-        bottom.addWidget(label("Double-click a transaction to edit it. Dates marked ~ are estimated.","muted",True),1)
-        self.edit_button=button("Edit selected")
+        bottom.addWidget(label("~ Estimated historical date  ·  Double-click a row to edit","muted",True),1)
+        self.edit_button=button("Edit selection")
         self.delete_button=button("Delete","danger")
         for b in (self.edit_button,self.delete_button):
             b.setEnabled(False)
@@ -488,6 +647,17 @@ class Window(QMainWindow):
         self.side_restore.clicked.connect(self.restore_backup)
         self.side_email.clicked.connect(self.email_backup)
         self.side_opening.clicked.connect(self.edit_opening)
+        self.side_about.clicked.connect(self.show_about)
+        self.nav_overview.clicked.connect(lambda:self.navigate(0))
+        self.nav_activity.clicked.connect(lambda:self.navigate(0))
+        self.nav_monthly.clicked.connect(lambda:self.navigate(1))
+        self.nav_balance_search.clicked.connect(lambda:self.navigate(2))
+        self.nav_unbalanced.clicked.connect(lambda:self.navigate(3))
+        self.balance_query.textChanged.connect(self.render_balance_search)
+        self.loan_new.clicked.connect(self.register_selected_loan)
+        self.loan_suggest.clicked.connect(self.review_refunds)
+        self.loan_unlink.clicked.connect(self.unlink_selected_repayment)
+        self.loan_table.itemSelectionChanged.connect(self.render_repayments)
         self.search.textChanged.connect(self.render_transactions)
         self.period.currentIndexChanged.connect(self.period_changed)
         self.from_date.dateChanged.connect(self.render_transactions)
@@ -497,6 +667,178 @@ class Window(QMainWindow):
         self.edit_button.clicked.connect(self.edit_transaction)
         self.delete_button.clicked.connect(self.delete_transaction)
         self.tabs.currentChanged.connect(self.update_selection)
+        self.tabs.currentChanged.connect(self._nav_feedback)
+
+    def navigate(self, tab: int):
+        self.tabs.setCurrentIndex(tab)
+        if tab==0:
+            self.search.setFocus()
+
+    def _nav_feedback(self, tab: int):
+        self.nav_overview.setObjectName("navActive" if tab==0 else "nav")
+        self.nav_activity.setObjectName("nav" )
+        self.nav_monthly.setObjectName("navActive" if tab==1 else "nav")
+        self.nav_balance_search.setObjectName("navActive" if tab==2 else "nav")
+        self.nav_unbalanced.setObjectName("navActive" if tab==3 else "nav")
+        for control in (self.nav_overview,self.nav_activity,self.nav_monthly,self.nav_balance_search,self.nav_unbalanced):
+            control.style().unpolish(control)
+            control.style().polish(control)
+
+    def render_balance_search(self):
+        if not hasattr(self,"all_entries"): return
+        query=self.balance_query.text().strip().casefold()
+        matches=[e for e in self.all_entries if query and query in e.description.casefold()]
+        pos=sum(max(e.mills,0) for e in matches)
+        neg=sum(min(e.mills,0) for e in matches)
+        self.bs_in.setText("Money in: " + display_money(pos))
+        self.bs_out.setText("Money out: " + display_money(neg))
+        self.bs_net.setText("Net: " + display_money(pos+neg))
+        self.bs_table.setRowCount(len(matches))
+        for i,e in enumerate(reversed(matches)):
+            for c,v in enumerate((e.date,e.description,display_money(e.mills))):
+                self.bs_table.setItem(i,c,QTableWidgetItem(v))
+
+    def render_loans(self):
+        loans=unbalanced.loan_rows(self.db)
+        self.loan_table.setRowCount(len(loans))
+        owed=sum(x.outstanding_mills for x in loans if x.direction=='lent')
+        owing=sum(x.outstanding_mills for x in loans if x.direction=='borrowed')
+        self.ub_summary.setText(f"Owed to you: {display_money(owed)}    ·    You owe: {display_money(owing)}")
+        for i,loan in enumerate(loans):
+            vals=(loan.person,loan.direction.title(),display_money(loan.principal_mills),
+                  display_money(loan.repaid_mills),display_money(loan.outstanding_mills))
+            for j,value in enumerate(vals):
+                item=QTableWidgetItem(value)
+                item.setData(Qt.ItemDataRole.UserRole,loan.id)
+                self.loan_table.setItem(i,j,item)
+        self.render_repayments()
+
+    def active_loan_id(self):
+        row=self.loan_table.currentRow()
+        item=self.loan_table.item(row,0) if row>=0 else None
+        return item.data(Qt.ItemDataRole.UserRole) if item else None
+
+    def render_repayments(self):
+        loan_id=self.active_loan_id()
+        rows=unbalanced.linked_repayments(self.db,loan_id) if loan_id else []
+        self.repay_table.setRowCount(len(rows))
+        for i,tx in enumerate(rows):
+            for j,val in enumerate((tx['tx_date'],tx['description'],display_money(tx['amount_mills']))):
+                item=QTableWidgetItem(val)
+                item.setData(Qt.ItemDataRole.UserRole,tx['id'])
+                self.repay_table.setItem(i,j,item)
+
+    def register_selected_loan(self):
+        # A loan is registered only when the user explicitly selects its existing transaction.
+        candidates=[e for e in self.all_entries if e.mills != 0]
+        labels=[f"{e.date}  |  {e.description}  |  {display_money(e.mills)}  (#{e.id})" for e in reversed(candidates)]
+        if not labels: return message(self,"No transactions","Add a transaction first.")
+        choice,ok=QInputDialog.getItem(self,"Select original loan","Original lending / borrowing transaction:",labels,0,False)
+        if not ok: return
+        txid=int(choice.rsplit('(#',1)[-1][:-1]) if '(#' in choice else None
+        person,ok=QInputDialog.getText(self,"Name the person","Person who lent or borrowed:")
+        if not ok: return
+        try:
+            direction=unbalanced.register_loan(self.db,txid,person)
+            self.render_loans()
+            message(self,"Loan tracked",f"Recorded as {direction}. Ledger balance was not changed.")
+        except Exception as exc: error(self,"Could not track loan",exc)
+
+    def review_refunds(self):
+        loan_id=self.active_loan_id()
+        if loan_id is None: return message(self,"Select a loan","Select a loan to review suggested repayments.")
+        options=unbalanced.suggestions(self.db,loan_id)
+        if not options:
+            return message(self,"No suggestions","No unreviewed matching refund or repayment descriptions found. No changes made.")
+        labels=[f"{tx['tx_date']} | {tx['description']} | {display_money(tx['amount_mills'])} (#{tx['id']})" for tx in options]
+        choice,ok=QInputDialog.getItem(self,"Possible repayments","Choose a transaction to review:",labels,0,False)
+        if not ok: return
+        txid=int(choice.rsplit('(#',1)[-1][:-1])
+        choice_index=labels.index(choice)
+        tx=options[choice_index]
+        box=QMessageBox(self)
+        box.setWindowTitle("Confirm repayment")
+        box.setText(f"Link '{tx['description']}' ({display_money(tx['amount_mills'])}) as a repayment?\nThis will not change your ledger balance.")
+        yes=box.addButton("Confirm repayment",QMessageBox.ButtonRole.AcceptRole)
+        no=box.addButton("Not a repayment",QMessageBox.ButtonRole.DestructiveRole)
+        box.addButton("Cancel",QMessageBox.ButtonRole.RejectRole)
+        box.exec()
+        try:
+            if box.clickedButton()==yes: unbalanced.confirm_repayment(self.db,loan_id,txid)
+            elif box.clickedButton()==no: unbalanced.dismiss_suggestion(self.db,loan_id,txid)
+            self.render_loans()
+        except Exception as exc: error(self,"Cannot link repayment",exc)
+
+    def unlink_selected_repayment(self):
+        row=self.repay_table.currentRow()
+        item=self.repay_table.item(row,0) if row>=0 else None
+        if not item: return message(self,"Select repayment","Select a linked repayment in the lower table first.")
+        if not confirm(self,"Unlink repayment?","Remove this repayment link? The original transaction stays unchanged."): return
+        unbalanced.unlink_repayment(self.db,item.data(Qt.ItemDataRole.UserRole))
+        self.render_loans()
+
+    def show_about(self):
+        from PySide6.QtGui import QPixmap
+
+        dlg=QDialog(self)
+        dlg.setWindowTitle("About GlassBalance")
+        dlg.setWindowIcon(app_icon())
+        layout=QVBoxLayout(dlg)
+        layout.setSpacing(12)
+        avatar=QLabel()
+        avatar.setFixedHeight(106)
+        avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        asset_root=Path(getattr(sys,"_MEIPASS",Path(__file__).resolve().parent.parent))
+        bundled=asset_root/"glassbalance"/"assets"/"onimee58_avatar.png"
+        custom=data_folder()/"maintainer_avatar.png"
+
+        def display_avatar():
+            for path in (custom,bundled):
+                if path.is_file():
+                    pix=QPixmap(str(path))
+                    if not pix.isNull():
+                        avatar.setPixmap(pix.scaled(96,96,Qt.AspectRatioMode.KeepAspectRatio,Qt.TransformationMode.SmoothTransformation))
+                        return
+            avatar.setText("◈")
+            avatar.setStyleSheet("font-size: 38px; color: #81e0ce;")
+
+        def choose_avatar():
+            path,_=QFileDialog.getOpenFileName(dlg,"Choose your GitHub profile picture",str(Path.home()),"Images (*.png *.jpg *.jpeg *.webp)")
+            if not path:
+                return
+            pix=QPixmap(path)
+            if pix.isNull():
+                return message(dlg,"Invalid picture","Please select a valid PNG, JPEG, or WebP image.")
+            image=pix.scaled(128,128,Qt.AspectRatioMode.KeepAspectRatio,Qt.TransformationMode.SmoothTransformation)
+            if not image.save(str(custom),"PNG"):
+                return message(dlg,"Picture not saved","Could not save your profile image.")
+            display_avatar()
+
+        display_avatar()
+        layout.addWidget(avatar)
+        photo_button=button("Change profile picture (local)")
+        photo_button.clicked.connect(choose_avatar)
+        layout.addWidget(photo_button)
+        logo=QLabel()
+        logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        logo.setPixmap(app_icon().pixmap(54,54))
+        layout.addWidget(logo)
+        title=label(f"GlassBalance v{__version__}","section")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title)
+        info=label("Created and maintained by @Onimee58\nFounding maintainer · October 2026\nMIT License", "muted",True)
+        info.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(info)
+        link=QLabel('<a href="https://github.com/Onimee58/GlassBalance" style="color:#81e0ce;">GitHub project ↗</a>')
+        link.setOpenExternalLinks(True)
+        link.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(link)
+        layout.addWidget(label("Alpha software: keep a backup before upgrading.","muted",True))
+        close=button("Close")
+        close.clicked.connect(dlg.accept)
+        layout.addWidget(close)
+        dlg.resize(395,420)
+        dlg.exec()
 
     def _setup_table(self,table):
         table.setShowGrid(False)
@@ -525,6 +867,7 @@ class Window(QMainWindow):
     def refresh(self):
         self.all_entries=self.db.entries()
         self.balance_value.setText(display_money(self.db.balance()))
+        self.trend.set_entries(self.all_entries)
         month=date.today().strftime("%Y-%m")
         in_month=sum(max(r.mills,0) for r in self.all_entries if r.date.startswith(month))
         out_month=sum(max(-r.mills,0) for r in self.all_entries if r.date.startswith(month))
@@ -532,6 +875,8 @@ class Window(QMainWindow):
         self.expense_value.setText(display_money(out_month))
         self.render_transactions()
         self.render_monthly()
+        self.render_balance_search()
+        self.render_loans()
 
     def period_changed(self):
         custom=self.period.currentText()=="Custom dates"
@@ -771,6 +1116,7 @@ def run():
     QApplication.setApplicationName("GlassBalance")
     QApplication.setOrganizationName("GlassBalance")
     app=QApplication(sys.argv)
+    app.setWindowIcon(app_icon())
     app.setFont(QFont("Segoe UI",10))
     window=Window()
     window.show()
