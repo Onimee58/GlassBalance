@@ -31,7 +31,7 @@ GlassBalance is written with **Python and PySide6 (Qt)**. It is **not** a web ap
 | Feature | Description |
 | --- | --- |
 | **Continuous ledger** | Add, edit, and delete dated income and expenses; running balances update automatically. |
-| **Balance Search** | Search descriptions such as `ammu` and see matching entries, money in, money out, and net total. |
+| **Balance Search** | Search descriptions such as `walmart` and see matching entries, money in, money out, and net total. |
 | **Unbalanced** | Track money lent or borrowed and outstanding amounts. |
 | **Repayment review** | Suggest possible repayments from names and keywords like `refund`; **every link requires confirmation**. |
 | **Partial repayments** | Link or unlink repayments without changing the underlying ledger totals. |
