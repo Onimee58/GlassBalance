@@ -3,8 +3,11 @@ name: Build desktop packages
 on:
   workflow_dispatch:
   push:
-    branches: [main]
-    tags: ['v*']
+    branches:
+      - main
+      - 'v0.2.0-*'
+    tags:
+      - 'v*'
 
 jobs:
   bundle:
