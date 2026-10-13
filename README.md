@@ -1,10 +1,33 @@
 # GlassBalance
 
+Created and maintained by **[@Onimee58](https://github.com/Onimee58)** · started October 2026.
+
 **A private, open-source balance tracker for Windows and Linux.**
 
 GlassBalance is a **native Qt desktop app**, not a website or Electron/browser wrapper. It reproduces the key behavior of a continuous spreadsheet ledger: each signed transaction increases or decreases a single running balance. It works offline and uses a local SQLite database.
 
-## Features in 0.1
+## New in v0.2.0-alpha.2
+
+- **Balance Search** is a dedicated tab: enter a phrase to see all matching ledger descriptions, money in, money out, and net total.
+- **Unbalanced** is an opt-in loan tracker. Click **Track selected transaction as loan**, select an original loan transaction, and name the person. Money lent is a negative transaction; money borrowed is positive.
+- Select a loan and choose **Review possible refunds** to review matching transactions. Every individual repayment needs explicit confirmation; declining a suggestion keeps it from repeating for the same loan.
+- Loan settlement links do **not** alter ledger transactions or your overall balance. You can unlink repayments. Existing histories continue unchanged.
+- **About** has maintainer credit and an offline-bundled profile image if GitHub Actions can fetch one at package build time; otherwise there is a fallback mark.
+
+**Current alpha.2 limitations:** Initial registration uses an existing transaction selection list. Refund suggestions look for a person name and the keywords `refund`, `repay`, or `return`. Manual selection of other repayments and deleting loan classifications will follow. Editing an amount linked to a loan is blocked until you unlink it. As always, keep a local backup before upgrading.
+
+## Previously in v0.2.0-alpha
+
+- Rebuilt the Qt desktop interface with a more deliberate glass-inspired visual hierarchy.
+- Brand-new navigation sidebar and balance hero.
+- Native, dependency-free mini chart of the last 90 running balances.
+- Reorganized income and expenses overview and streamlined transaction workspace.
+- **About GlassBalance** screen credits [@Onimee58](https://github.com/Onimee58), the founding maintainer.
+- Fully reuses the v0.1 SQLite ledger; no migration or reimport is necessary.
+
+This is a **visual redesign alpha**. Automatic sync, new categorization and standalone installers are not included in this milestone. Existing Excel import/export, manual encrypted email backups and transaction editing are preserved.
+
+## Features in 0.2.0-alpha
 
 - **Continuous ledger:** opening balance + signed transactions. The opening balance is not income.
 - **Transaction editor:** description, signed amount, calendar date, estimated/confirmed date.
@@ -19,7 +42,7 @@ GlassBalance is a **native Qt desktop app**, not a website or Electron/browser w
 
 ### Current limitations
 
-This is a **first desktop release/source project**. It has not yet undergone full native UI testing or installer signing on Windows/Linux. **Email backups are manual snapshot transfer, not automatic two-way sync.** If you restore an old email snapshot, it replaces current local data; GlassBalance first creates a local safety backup and asks for confirmation. Local SQLite data is **not encrypted at rest** by default; use your operating system's full-disk encryption.
+This is an **alpha desktop release/source project**. It has not yet undergone full native UI testing or installer signing on Windows/Linux. **Email backups are manual snapshot transfer, not automatic two-way sync.** If you restore an old email snapshot, it replaces current local data; GlassBalance first creates a local safety backup and asks for confirmation. Local SQLite data is **not encrypted at rest** by default; use your operating system's full-disk encryption.
 
 There is no live bank connection, budget-limit forecasting, or cloud service. The source distribution includes **no private financial records**.
 
@@ -121,15 +144,6 @@ These cover workbook imports, salary/rent dating, fractional-cent preservation, 
 ```bash
 python -m unittest discover -s tests -v
 ```
-
-## Creator & Maintainer
-
-GlassBalance was initiated and is maintained by
-[Onimee58](https://github.com/Onimee58).
-
-Project started in October 2026.
-
-
 
 ## Technology and license
 
