@@ -5,9 +5,6 @@ The application never makes a network request to display the About dialog.
 from pathlib import Path
 from urllib.request import Request, urlopen
 
-import os
-os.makedirs(os.path.join(os.path.dirname(__file__), "..", "glassbalance", "assets"), exist_ok=True)
-
 AVATAR_URL = (
     "https://avatars.githubusercontent.com/u/50075168"
     "?s=128&u=781ccb90f9a3b8c934f873352e15afe02ee08ff6&v=4"

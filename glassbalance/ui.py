@@ -10,7 +10,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from PySide6.QtCore import QDate, QSettings, Qt, QStandardPaths
-from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPen, QRadialGradient
+from PySide6.QtGui import QColor, QFont, QIcon, QLinearGradient, QPainter, QPen, QRadialGradient, QPixmap
 from PySide6.QtWidgets import (
     QApplication, QAbstractItemView, QComboBox, QDateEdit, QDialog,
     QDialogButtonBox, QFileDialog, QFormLayout, QFrame, QGridLayout,
@@ -29,8 +29,10 @@ from . import unbalanced
 
 STYLE = """
 QWidget { color: #ecf2fa; font-family: "Inter", "Segoe UI", "Noto Sans", sans-serif; font-size: 13px; }
-QScrollArea#sidebarScroll { background: transparent; border: none; }
-QFrame#sidebar { background-color: rgba(9, 18, 33, 238); border: 1px solid rgba(143, 177, 208, 27); border-radius: 20px; }
+QScrollArea#sidebarScroll { background-color: #091221; border: none; }
+QWidget#sidebarViewport { background-color: #091221; }
+QWidget#sidebarContent { background-color: #091221; }
+QFrame#sidebar { background-color: #091221; border: 1px solid rgba(143, 177, 208, 27); border-radius: 20px; }
 QFrame#glass { background-color: rgba(18, 32, 51, 222); border: 1px solid rgba(152, 190, 223, 43); border-radius: 20px; }
 QFrame#stat { background-color: rgba(18, 32, 51, 218); border: 1px solid rgba(152, 190, 223, 43); border-radius: 18px; }
 QFrame#hero { background-color: rgba(22, 44, 64, 230); border: 1px solid rgba(119, 207, 203, 72); border-radius: 22px; }
@@ -397,10 +399,18 @@ def backup_folder() -> Path:
     return root
 
 
+def app_icon() -> QIcon:
+    """Resolve bundled icon in both source and PyInstaller installations."""
+    base=Path(getattr(sys,"_MEIPASS",Path(__file__).resolve().parent.parent))
+    path=base/"glassbalance"/"assets"/"glassbalance_icon.png"
+    return QIcon(str(path)) if path.is_file() else QIcon()
+
+
 class Window(QMainWindow):
     def __init__(self, db_path: str | Path | None=None):
         super().__init__()
         self.setWindowTitle(f"GlassBalance  ·  Personal ledger  ·  v{__version__}")
+        self.setWindowIcon(app_icon())
         self.resize(1350,860)
         self.setMinimumSize(1010,710)
         self.db=Ledger(db_path or (data_folder()/"balance.sqlite"))
@@ -425,17 +435,22 @@ class Window(QMainWindow):
         side_scroll=QScrollArea(left)
         side_scroll.setObjectName("sidebarScroll")
         side_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        side_scroll.viewport().setObjectName("sidebarViewport")
+        side_scroll.viewport().setStyleSheet("background-color: #091221;")
         side_scroll.setWidgetResizable(True)
         side_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         side_content=QWidget()
+        side_content.setObjectName("sidebarContent")
+        side_content.setStyleSheet("background-color: #091221;")
         sidebar=QVBoxLayout(side_content)
         sidebar.setContentsMargins(14,18,14,14)
         sidebar.setSpacing(6)
         side_scroll.setWidget(side_content)
         sidebar_shell.addWidget(side_scroll)
         brand_row=QHBoxLayout()
-        mark=label("◈")
-        mark.setStyleSheet("color:#81e0ce; font-size:30px; font-weight:800;")
+        mark=QLabel()
+        mark.setFixedSize(36,36)
+        mark.setPixmap(app_icon().pixmap(34,34))
         brand_row.addWidget(mark)
         brand_row.addWidget(label("GlassBalance","brand"),1)
         sidebar.addLayout(brand_row)
@@ -767,6 +782,7 @@ class Window(QMainWindow):
 
         dlg=QDialog(self)
         dlg.setWindowTitle("About GlassBalance")
+        dlg.setWindowIcon(app_icon())
         layout=QVBoxLayout(dlg)
         layout.setSpacing(12)
         avatar=QLabel()
@@ -803,6 +819,10 @@ class Window(QMainWindow):
         photo_button=button("Change profile picture (local)")
         photo_button.clicked.connect(choose_avatar)
         layout.addWidget(photo_button)
+        logo=QLabel()
+        logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        logo.setPixmap(app_icon().pixmap(54,54))
+        layout.addWidget(logo)
         title=label(f"GlassBalance v{__version__}","section")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
@@ -1096,6 +1116,7 @@ def run():
     QApplication.setApplicationName("GlassBalance")
     QApplication.setOrganizationName("GlassBalance")
     app=QApplication(sys.argv)
+    app.setWindowIcon(app_icon())
     app.setFont(QFont("Segoe UI",10))
     window=Window()
     window.show()
