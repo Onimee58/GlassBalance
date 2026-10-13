@@ -33,6 +33,8 @@ jobs:
         run: python -m unittest discover -s tests -v
       - name: Bundle lightweight maintainer avatar (optional)
         run: python scripts/fetch_avatar.py
+      - name: Ensure assets directory exists
+        run: python -c "from pathlib import Path; Path('glassbalance/assets').mkdir(parents=True, exist_ok=True)"
       - name: Build native desktop bundle
         run: python -m PyInstaller --noconfirm --clean --windowed --onedir --name GlassBalance --add-data "glassbalance/assets:glassbalance/assets" app.py
       - name: Package platform bundle
