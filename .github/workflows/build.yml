@@ -3,11 +3,8 @@ name: Build desktop packages
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
-      - 'v0.2.0-*'
-    tags:
-      - 'v*'
+    branches: [main, 'v0.2.0-*']
+    tags: ['v*']
 
 jobs:
   bundle:
@@ -39,7 +36,7 @@ jobs:
       - name: Ensure assets directory exists
         run: python -c "from pathlib import Path; Path('glassbalance/assets').mkdir(parents=True, exist_ok=True)"
       - name: Build native desktop bundle
-        run: python -m PyInstaller --noconfirm --clean --windowed --onedir --name GlassBalance --add-data "glassbalance/assets:glassbalance/assets" app.py
+        run: python scripts/build_bundle.py
       - name: Package platform bundle
         run: python scripts/package.py ${{ matrix.label }}
       - name: Publish build artifact
