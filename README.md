@@ -1,10 +1,23 @@
 # GlassBalance
 
+Created and maintained by **[@Onimee58](https://github.com/Onimee58)** · started October 2026.
+
 **A private, open-source balance tracker for Windows and Linux.**
 
 GlassBalance is a **native Qt desktop app**, not a website or Electron/browser wrapper. It reproduces the key behavior of a continuous spreadsheet ledger: each signed transaction increases or decreases a single running balance. It works offline and uses a local SQLite database.
 
-## Features in 0.1
+## New in v0.2.0-alpha
+
+- Rebuilt the Qt desktop interface with a more deliberate glass-inspired visual hierarchy.
+- Brand-new navigation sidebar and balance hero.
+- Native, dependency-free mini chart of the last 90 running balances.
+- Reorganized income and expenses overview and streamlined transaction workspace.
+- **About GlassBalance** screen credits [@Onimee58](https://github.com/Onimee58), the founding maintainer.
+- Fully reuses the v0.1 SQLite ledger; no migration or reimport is necessary.
+
+This is a **visual redesign alpha**. Automatic sync, new categorization and standalone installers are not included in this milestone. Existing Excel import/export, manual encrypted email backups and transaction editing are preserved.
+
+## Features in 0.2.0-alpha
 
 - **Continuous ledger:** opening balance + signed transactions. The opening balance is not income.
 - **Transaction editor:** description, signed amount, calendar date, estimated/confirmed date.
@@ -19,7 +32,7 @@ GlassBalance is a **native Qt desktop app**, not a website or Electron/browser w
 
 ### Current limitations
 
-This is a **first desktop release/source project**. It has not yet undergone full native UI testing or installer signing on Windows/Linux. **Email backups are manual snapshot transfer, not automatic two-way sync.** If you restore an old email snapshot, it replaces current local data; GlassBalance first creates a local safety backup and asks for confirmation. Local SQLite data is **not encrypted at rest** by default; use your operating system's full-disk encryption.
+This is an **alpha desktop release/source project**. It has not yet undergone full native UI testing or installer signing on Windows/Linux. **Email backups are manual snapshot transfer, not automatic two-way sync.** If you restore an old email snapshot, it replaces current local data; GlassBalance first creates a local safety backup and asks for confirmation. Local SQLite data is **not encrypted at rest** by default; use your operating system's full-disk encryption.
 
 There is no live bank connection, budget-limit forecasting, or cloud service. The source distribution includes **no private financial records**.
 
@@ -121,15 +134,6 @@ These cover workbook imports, salary/rent dating, fractional-cent preservation, 
 ```bash
 python -m unittest discover -s tests -v
 ```
-
-## Creator & Maintainer
-
-GlassBalance was initiated and is maintained by
-[Onimee58](https://github.com/Onimee58).
-
-Project started in October 2026.
-
-
 
 ## Technology and license
 
