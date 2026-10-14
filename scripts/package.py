@@ -15,6 +15,13 @@ def main():
             if not file.is_file():
                 continue
             archive.write(file,arcname=file.relative_to(root.parent).as_posix())
+        if label == 'Linux':
+            source=Path('glassbalance/assets/glassbalance_icon.png')
+            if not source.is_file():
+                raise SystemExit('Missing packaged Linux icon asset')
+            archive.write(source,arcname='glassbalance-icon.png')
+            for script in ('install-linux.sh','uninstall-linux.sh'):
+                archive.write(Path('scripts')/script,arcname=script)
     print(f'Packaged {target} ({target.stat().st_size:,} bytes)')
 
 
