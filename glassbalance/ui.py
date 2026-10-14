@@ -591,7 +591,7 @@ class Window(QMainWindow):
         bs=QVBoxLayout(self.balance_search_tab)
         bs.addWidget(label("Search all transactions and see the signed net amount for any name or phrase.","muted",True))
         self.balance_query=QLineEdit()
-        self.balance_query.setPlaceholderText("Try: ammu")
+        self.balance_query.setPlaceholderText("Try: walmart")
         self.balance_query.setClearButtonEnabled(True)
         bs.addWidget(self.balance_query)
         bs_totals=QHBoxLayout()
@@ -1115,6 +1115,8 @@ class Window(QMainWindow):
 def run():
     QApplication.setApplicationName("GlassBalance")
     QApplication.setOrganizationName("GlassBalance")
+    if sys.platform.startswith("linux"):
+        QApplication.setDesktopFileName("io.github.Onimee58.GlassBalance")
     app=QApplication(sys.argv)
     app.setWindowIcon(app_icon())
     app.setFont(QFont("Segoe UI",10))
