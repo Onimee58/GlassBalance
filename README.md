@@ -155,3 +155,7 @@ PDF and receipt processing are **not included in v0.3.x**. Cross-device, conflic
 GlassBalance is released under the [MIT License](LICENSE). Third-party components have separate licenses; PySide6/Qt redistribution must satisfy the applicable LGPL/GPL/commercial terms and other dependencies' requirements.
 
 Bug reports and contributions are welcome at [github.com/Onimee58/GlassBalance](https://github.com/Onimee58/GlassBalance).
+
+## In development: v0.3.0-alpha.2 installers
+
+The `develop/v0.3.0` development branch adds a per-user Windows setup installer and an Ubuntu/Debian `amd64` `.deb` package, while retaining portable ZIP artifacts. See [ALPHA2_PACKAGING_TEST.md](ALPHA2_PACKAGING_TEST.md) for installation, upgrade, and data-preservation testing. Alpha 2 categories, undo deletion, and expanded charts are planned but not yet included in this first development increment.
