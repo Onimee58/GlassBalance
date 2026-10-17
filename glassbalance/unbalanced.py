@@ -128,3 +128,14 @@ def linked_repayments(ledger, loan_id):
     return [dict(r) for r in ledger.conn.execute('''
         SELECT t.* FROM loan_repayments p JOIN transactions t ON t.id=p.repayment_tx_id
         WHERE p.loan_id=? ORDER BY t.tx_date,t.id''',(loan_id,))]
+
+
+def remove_loan(ledger, loan_id):
+    """Remove only loan classification; original transactions are untouched."""
+    with ledger.conn:
+        row=ledger.conn.execute("SELECT id FROM loan_records WHERE id=?", (loan_id,)).fetchone()
+        if row is None:
+            raise ValueError("Loan no longer exists")
+        ledger.conn.execute("DELETE FROM loan_repayments WHERE loan_id=?", (loan_id,))
+        ledger.conn.execute("DELETE FROM dismissed_suggestions WHERE loan_id=?", (loan_id,))
+        ledger.conn.execute("DELETE FROM loan_records WHERE id=?", (loan_id,))

@@ -6,17 +6,20 @@ painted gradient make a restrained glass-inspired layout on Windows and Linux.
 from __future__ import annotations
 
 import sys
+import json
 from datetime import date, datetime
 from pathlib import Path
 
-from PySide6.QtCore import QDate, QSettings, Qt, QStandardPaths
-from PySide6.QtGui import QColor, QFont, QIcon, QLinearGradient, QPainter, QPen, QRadialGradient, QPixmap
+from PySide6.QtCore import QDate, QSettings, Qt, QStandardPaths, QTimer, QUrl, QSignalBlocker
+from PySide6.QtGui import QColor, QFont, QIcon, QLinearGradient, QPainter, QPen, QRadialGradient, QPixmap, QDesktopServices, QAction
+from PySide6.QtNetwork import QNetworkAccessManager, QNetworkRequest
+from .update_check import RELEASES_URL, is_newer, latest_stable_release
 from PySide6.QtWidgets import (
     QApplication, QAbstractItemView, QComboBox, QDateEdit, QDialog,
     QDialogButtonBox, QFileDialog, QFormLayout, QFrame, QGridLayout,
     QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMainWindow, QMessageBox,
     QPushButton, QSizePolicy, QTabWidget, QTableWidget, QTableWidgetItem,
-    QVBoxLayout, QWidget, QStackedWidget, QGraphicsDropShadowEffect, QInputDialog, QScrollArea,
+    QVBoxLayout, QWidget, QStackedWidget, QGraphicsDropShadowEffect, QInputDialog, QScrollArea, QColorDialog, QMenu, QTextEdit, QCompleter,
 )
 
 from . import __version__
@@ -25,6 +28,7 @@ from .email_backup import decrypt_snapshot, download_latest_backup, send_backup
 from .importer import load_import
 from .money import as_mills, display_money, mills_as_decimal
 from . import unbalanced
+from .themes import stylesheet, effective_theme, theme_background
 
 
 STYLE = """
@@ -86,9 +90,12 @@ class GradientCanvas(QWidget):
         p=QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         background=QLinearGradient(0,0,self.width(),self.height())
-        background.setColorAt(0,QColor("#101a2a"))
-        background.setColorAt(0.5,QColor("#15273a"))
-        background.setColorAt(1,QColor("#0f1a29"))
+        if getattr(self,"theme_mode","dark")=="light":
+            base=("#eef4f9","#e7f0f8","#eff5fb")
+        else:
+            base=("#101a2a","#15273a","#0f1a29")
+        for idx,stop in enumerate((0,0.5,1)):
+            background.setColorAt(stop,QColor(base[idx]))
         p.fillRect(self.rect(),background)
         for x,y,r,rgba in ((self.width()*0.76,64,300,(35,123,139,40)),
                            (self.width()*0.10,self.height()*0.76,310,(84,94,156,28))):
@@ -191,8 +198,17 @@ def confirm(parent,title: str,text: str) -> bool:
            QMessageBox.StandardButton.No)==QMessageBox.StandardButton.Yes
 
 
+def make_completer(values, parent):
+    """Offline, case-insensitive suggestions; no monetary fields are filled."""
+    completer = QCompleter(sorted(set(x.strip() for x in values if x.strip()), key=str.casefold), parent)
+    completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+    completer.setFilterMode(Qt.MatchFlag.MatchContains)
+    completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+    return completer
+
+
 class TransactionDialog(QDialog):
-    def __init__(self,parent=None,entry: Entry|None=None):
+    def __init__(self,parent=None,entry: Entry|None=None, suggestions=None):
         super().__init__(parent)
         self.setWindowTitle("Edit transaction" if entry else "New transaction")
         self.setMinimumWidth(410)
@@ -206,6 +222,7 @@ class TransactionDialog(QDialog):
         form.setSpacing(13)
         self.name=QLineEdit(entry.description if entry else "")
         self.name.setPlaceholderText("e.g. Groceries, September salary, rent")
+        self.name.setCompleter(make_completer(suggestions or [], self.name))
         self.amount=QLineEdit(mills_as_decimal(entry.mills) if entry else "")
         self.amount.setPlaceholderText("e.g. -35.50 or 2100.00")
         self.date=QDateEdit()
@@ -413,14 +430,24 @@ class Window(QMainWindow):
         self.setWindowIcon(app_icon())
         self.resize(1350,860)
         self.setMinimumSize(1010,710)
+        self.update_settings = QSettings("GlassBalance", "Desktop")
+        self.update_network = QNetworkAccessManager(self)
+        self.latest_release = None
+        self.update_inflight = False
+        self.update_observers = []
         self.db=Ledger(db_path or (data_folder()/"balance.sqlite"))
         unbalanced.install(self.db)
-        self.setStyleSheet(STYLE)
+        self.theme_preference=str(self.update_settings.value("appearance/theme", "Dark"))
+        self.accent=str(self.update_settings.value("appearance/accent", "#81e0ce"))
+        self.setStyleSheet(stylesheet(STYLE, effective_theme(self.theme_preference), self.accent))
         self.canvas=GradientCanvas()
         self.setCentralWidget(self.canvas)
         self.build()
         self.refresh()
-        self.statusBar().showMessage(f"Offline • Stored only on this computer • {self.db.path or 'Memory'}")
+        self.apply_theme()
+        self.statusBar().showMessage(f"Offline-first • Stored on this computer • {self.db.path or 'Memory'}")
+        if self.update_settings.value("updates/check_at_startup", True, type=bool):
+            QTimer.singleShot(1200, lambda: self.check_updates())
 
     def build(self):
         root=QHBoxLayout(self.canvas)
@@ -433,15 +460,17 @@ class Window(QMainWindow):
         sidebar_shell.setContentsMargins(0,0,0,0)
         sidebar_shell.setSpacing(0)
         side_scroll=QScrollArea(left)
+        self.side_scroll=side_scroll
         side_scroll.setObjectName("sidebarScroll")
         side_scroll.setFrameShape(QFrame.Shape.NoFrame)
         side_scroll.viewport().setObjectName("sidebarViewport")
-        side_scroll.viewport().setStyleSheet("background-color: #091221;")
+
         side_scroll.setWidgetResizable(True)
         side_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         side_content=QWidget()
+        self.side_content=side_content
         side_content.setObjectName("sidebarContent")
-        side_content.setStyleSheet("background-color: #091221;")
+
         sidebar=QVBoxLayout(side_content)
         sidebar.setContentsMargins(14,18,14,14)
         sidebar.setSpacing(6)
@@ -473,14 +502,21 @@ class Window(QMainWindow):
         self.side_email=button("✉    Encrypted email","nav")
         self.side_opening=button("◉    Opening balance","nav")
         self.side_about=button("ⓘ    About GlassBalance","nav")
+        self.update_notice=button("●    Update available","navActive")
+        self.update_notice.setVisible(False)
+        self.update_notice.clicked.connect(self.show_about)
+        sidebar.addWidget(self.update_notice)
         for control in (self.side_import,self.side_export,self.side_backup,
                         self.side_restore,self.side_email,self.side_opening,self.side_about):
             sidebar.addWidget(control)
+        self.side_appearance=button("◐    Appearance", "nav")
+        self.side_appearance.clicked.connect(self.appearance_dialog)
+        sidebar.addWidget(self.side_appearance)
         sidebar.addStretch()
         sidebar.addWidget(label("●  LOCAL & OFFLINE","overline"))
         sidebar.addWidget(label("Your ledger stays on this device unless you choose to share a backup.","muted",True))
         sidebar.addSpacing(6)
-        sidebar.addWidget(label(f"v{__version__}  ·  ALPHA PREVIEW","muted"))
+        sidebar.addWidget(label(f"v{__version__}  ·  DEVELOPMENT PREVIEW","muted"))
         root.addWidget(left)
 
         main=QWidget()
@@ -548,7 +584,7 @@ class Window(QMainWindow):
         filters=QHBoxLayout()
         filters.setSpacing(9)
         self.search=QLineEdit()
-        self.search.setPlaceholderText("Search descriptions or periods…")
+        self.search.setPlaceholderText("Search transactions…")
         self.search.setClearButtonEnabled(True)
         filters.addWidget(self.search,1)
         self.period=QComboBox()
@@ -575,9 +611,13 @@ class Window(QMainWindow):
         self.table.setHorizontalHeaderLabels(["DATE","DESCRIPTION","CHANGE","RUNNING BALANCE","ACCURACY"])
         self._setup_table(self.table)
         th=self.table.horizontalHeader()
-        for i in (0,2,3,4):
-            th.setSectionResizeMode(i,QHeaderView.ResizeMode.ResizeToContents)
-        th.setSectionResizeMode(1,QHeaderView.ResizeMode.Stretch)
+        # Avoid ResizeToContents on large ledgers: calculating column widths while
+        # thousands of QTableWidgetItems are inserted can block the GUI after Save.
+        # Keep only the description fluid; numeric/date columns use stable widths.
+        for column, width in ((0, 126), (2, 132), (3, 155), (4, 110)):
+            th.setSectionResizeMode(column, QHeaderView.ResizeMode.Interactive)
+            th.resizeSection(column, width)
+        th.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.table.setMinimumHeight(220)
         self.tabs.addTab(self.table,"Transactions")
         self.monthly=QTableWidget(0,5)
@@ -593,6 +633,7 @@ class Window(QMainWindow):
         self.balance_query=QLineEdit()
         self.balance_query.setPlaceholderText("Try: walmart")
         self.balance_query.setClearButtonEnabled(True)
+        self.balance_query.setToolTip("Search all ledger descriptions")
         bs.addWidget(self.balance_query)
         bs_totals=QHBoxLayout()
         self.bs_in=label("Money in: $0.00","valueIn")
@@ -617,6 +658,13 @@ class Window(QMainWindow):
         ub.addLayout(ub_tools)
         self.ub_summary=label("Outstanding balances","section")
         ub.addWidget(self.ub_summary)
+        self.loan_query=QLineEdit()
+        self.loan_query.setPlaceholderText("Filter loans by person or description…")
+        self.loan_query.setClearButtonEnabled(True)
+        ub.addWidget(self.loan_query)
+        self.loan_remove=button("Remove selected from Unbalanced", "danger")
+        self.loan_remove.setEnabled(False)
+        ub.addWidget(self.loan_remove)
         self.loan_table=QTableWidget(0,5)
         self.loan_table.setHorizontalHeaderLabels(["PERSON","TYPE","ORIGINAL","REPAID","OUTSTANDING"])
         self._setup_table(self.loan_table)
@@ -657,22 +705,43 @@ class Window(QMainWindow):
         self.loan_new.clicked.connect(self.register_selected_loan)
         self.loan_suggest.clicked.connect(self.review_refunds)
         self.loan_unlink.clicked.connect(self.unlink_selected_repayment)
+        self.loan_remove.clicked.connect(self.remove_selected_loan)
+        self.loan_query.textChanged.connect(self.render_loans)
         self.loan_table.itemSelectionChanged.connect(self.render_repayments)
+        self.loan_table.itemSelectionChanged.connect(lambda: self.loan_remove.setEnabled(self.active_loan_id() is not None))
         self.search.textChanged.connect(self.render_transactions)
         self.period.currentIndexChanged.connect(self.period_changed)
         self.from_date.dateChanged.connect(self.render_transactions)
         self.to_date.dateChanged.connect(self.render_transactions)
         self.table.itemSelectionChanged.connect(self.update_selection)
         self.table.cellDoubleClicked.connect(lambda *_:self.edit_transaction())
+        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self.transaction_menu)
         self.edit_button.clicked.connect(self.edit_transaction)
         self.delete_button.clicked.connect(self.delete_transaction)
         self.tabs.currentChanged.connect(self.update_selection)
         self.tabs.currentChanged.connect(self._nav_feedback)
+        self.tabs.currentChanged.connect(self.adjust_filter_visibility)
+        self.adjust_filter_visibility()
 
     def navigate(self, tab: int):
         self.tabs.setCurrentIndex(tab)
         if tab==0:
             self.search.setFocus()
+
+    def adjust_filter_visibility(self, *_):
+        is_tx=self.tabs.currentIndex()==0
+        self.search.setVisible(is_tx)
+        self.period.setVisible(is_tx)
+        self.from_date.setVisible(is_tx and self.period.currentText()=="Custom dates")
+        self.to_date.setVisible(is_tx and self.period.currentText()=="Custom dates")
+        if self.tabs.currentIndex()==2:
+            self.balance_query.setFocus()
+        elif self.tabs.currentIndex()==3:
+            self.loan_query.setFocus()
+
+    def description_suggestions(self):
+        return [e.description for e in self.db.entries()]
 
     def _nav_feedback(self, tab: int):
         self.nav_overview.setObjectName("navActive" if tab==0 else "nav")
@@ -683,6 +752,11 @@ class Window(QMainWindow):
         for control in (self.nav_overview,self.nav_activity,self.nav_monthly,self.nav_balance_search,self.nav_unbalanced):
             control.style().unpolish(control)
             control.style().polish(control)
+
+    def refresh_completers(self):
+        descriptions=[e.description for e in self.all_entries]
+        self.search.setCompleter(make_completer(descriptions,self.search))
+        self.balance_query.setCompleter(make_completer(descriptions,self.balance_query))
 
     def render_balance_search(self):
         if not hasattr(self,"all_entries"): return
@@ -700,6 +774,10 @@ class Window(QMainWindow):
 
     def render_loans(self):
         loans=unbalanced.loan_rows(self.db)
+        search=self.loan_query.text().strip().casefold()
+        loans=[x for x in loans if search in (x.person+" "+x.description).casefold()]
+        selected=self.active_loan_id()
+        blocker=QSignalBlocker(self.loan_table)
         self.loan_table.setRowCount(len(loans))
         owed=sum(x.outstanding_mills for x in loans if x.direction=='lent')
         owing=sum(x.outstanding_mills for x in loans if x.direction=='borrowed')
@@ -711,7 +789,26 @@ class Window(QMainWindow):
                 item=QTableWidgetItem(value)
                 item.setData(Qt.ItemDataRole.UserRole,loan.id)
                 self.loan_table.setItem(i,j,item)
+            if loan.id==selected:
+                self.loan_table.selectRow(i)
+        del blocker
+        self.loan_remove.setEnabled(self.active_loan_id() is not None)
         self.render_repayments()
+
+    def remove_selected_loan(self):
+        loan_id=self.active_loan_id()
+        if loan_id is None:
+            return message(self,"Select a loan","Click a row in the Unbalanced table first.")
+        loan=next((x for x in unbalanced.loan_rows(self.db) if x.id==loan_id),None)
+        if loan is None: return
+        detail=(f"Remove tracking for {loan.person}?\n"
+                "Associated repayment links will also be removed.\n"
+                "All original ledger transactions and balances will remain unchanged.")
+        if not confirm(self,"Remove Unbalanced record?",detail): return
+        try:
+            unbalanced.remove_loan(self.db,loan_id)
+            self.render_loans()
+        except Exception as exc: error(self,"Could not remove loan",exc)
 
     def active_loan_id(self):
         row=self.loan_table.currentRow()
@@ -725,7 +822,7 @@ class Window(QMainWindow):
         for i,tx in enumerate(rows):
             for j,val in enumerate((tx['tx_date'],tx['description'],display_money(tx['amount_mills']))):
                 item=QTableWidgetItem(val)
-                item.setData(Qt.ItemDataRole.UserRole,tx['id'])
+                item.setData(Qt.ItemDataRole.UserRole,tx.id)
                 self.repay_table.setItem(i,j,item)
 
     def register_selected_loan(self):
@@ -750,7 +847,7 @@ class Window(QMainWindow):
         options=unbalanced.suggestions(self.db,loan_id)
         if not options:
             return message(self,"No suggestions","No unreviewed matching refund or repayment descriptions found. No changes made.")
-        labels=[f"{tx['tx_date']} | {tx['description']} | {display_money(tx['amount_mills'])} (#{tx['id']})" for tx in options]
+        labels=[f"{tx['tx_date']} | {tx['description']} | {display_money(tx['amount_mills'])} (#{tx.id})" for tx in options]
         choice,ok=QInputDialog.getItem(self,"Possible repayments","Choose a transaction to review:",labels,0,False)
         if not ok: return
         txid=int(choice.rsplit('(#',1)[-1][:-1])
@@ -776,6 +873,40 @@ class Window(QMainWindow):
         if not confirm(self,"Unlink repayment?","Remove this repayment link? The original transaction stays unchanged."): return
         unbalanced.unlink_repayment(self.db,item.data(Qt.ItemDataRole.UserRole))
         self.render_loans()
+
+    def check_updates(self, on_result=None):
+        """Asynchronously fetch public release metadata only; never send ledger content."""
+        if on_result is not None:
+            self.update_observers.append(on_result)
+        if self.update_inflight:
+            return
+        self.update_inflight = True
+        request = QNetworkRequest(QUrl(RELEASES_URL))
+        request.setRawHeader(b"Accept", b"application/vnd.github+json")
+        request.setRawHeader(b"User-Agent", b"GlassBalance-update-check")
+        request.setTransferTimeout(8000)
+        reply = self.update_network.get(request)
+
+        def finished():
+            self.update_inflight = False
+            try:
+                if reply.error():
+                    raise ValueError(reply.errorString())
+                payload = json.loads(bytes(reply.readAll()).decode("utf-8"))
+                release = latest_stable_release(payload)
+                available = is_newer(release["version"], __version__)
+                self.latest_release = release if available else None
+                self.update_notice.setVisible(available)
+                result = (release, None)
+            except (ValueError, UnicodeDecodeError, json.JSONDecodeError, TypeError) as exc:
+                result = (None, str(exc))
+            finally:
+                reply.deleteLater()
+            callbacks, self.update_observers = self.update_observers, []
+            for callback in callbacks:
+                callback(*result)
+
+        reply.finished.connect(finished)
 
     def show_about(self):
         from PySide6.QtGui import QPixmap
@@ -833,11 +964,42 @@ class Window(QMainWindow):
         link.setOpenExternalLinks(True)
         link.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(link)
-        layout.addWidget(label("Alpha software: keep a backup before upgrading.","muted",True))
+        layout.addWidget(label("Back up your ledger before upgrading.","muted",True))
+        update_result=label("Latest stable: not checked", "muted", True)
+        layout.addWidget(update_result)
+        update_btn=button("Check for updates")
+        layout.addWidget(update_btn)
+        open_release=button("View release on GitHub")
+        open_release.setVisible(False)
+        layout.addWidget(open_release)
+        startup_check=button("Startup checks: On" if self.update_settings.value("updates/check_at_startup",True,type=bool) else "Startup checks: Off")
+        layout.addWidget(startup_check)
+        def toggle_check():
+            enabled=not self.update_settings.value("updates/check_at_startup",True,type=bool)
+            self.update_settings.setValue("updates/check_at_startup",enabled)
+            startup_check.setText("Startup checks: On" if enabled else "Startup checks: Off")
+        startup_check.clicked.connect(toggle_check)
+        def show_update_result(release, failure):
+            if not dlg.isVisible():
+                return
+            update_btn.setEnabled(True)
+            if failure:
+                update_result.setText("Update check unavailable (offline or GitHub unreachable).")
+                open_release.setVisible(False)
+            else:
+                update_result.setText(f"Installed: v{__version__}\nLatest stable: {release['version']}\n" + ("Update available" if is_newer(release['version'],__version__) else "You're up to date"))
+                open_release.setVisible(is_newer(release['version'],__version__))
+                open_release.setProperty("release_url",release['url'])
+        def manual_check():
+            update_btn.setEnabled(False)
+            update_result.setText("Checking GitHub Releases…")
+            self.check_updates(show_update_result)
+        update_btn.clicked.connect(manual_check)
+        open_release.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(open_release.property("release_url"))))
         close=button("Close")
         close.clicked.connect(dlg.accept)
         layout.addWidget(close)
-        dlg.resize(395,420)
+        dlg.resize(430,560)
         dlg.exec()
 
     def _setup_table(self,table):
@@ -866,6 +1028,7 @@ class Window(QMainWindow):
 
     def refresh(self):
         self.all_entries=self.db.entries()
+        self.refresh_completers()
         self.balance_value.setText(display_money(self.db.balance()))
         self.trend.set_entries(self.all_entries)
         month=date.today().strftime("%Y-%m")
@@ -880,8 +1043,8 @@ class Window(QMainWindow):
 
     def period_changed(self):
         custom=self.period.currentText()=="Custom dates"
-        self.from_date.setVisible(custom)
-        self.to_date.setVisible(custom)
+        self.from_date.setVisible(custom and self.tabs.currentIndex()==0)
+        self.to_date.setVisible(custom and self.tabs.currentIndex()==0)
         self.render_transactions()
 
     def _current_filter(self,r: Entry) -> bool:
@@ -907,7 +1070,10 @@ class Window(QMainWindow):
         if not hasattr(self,"all_entries"):
             return
         results=[r for r in self.all_entries if self._current_filter(r)]
+        notes={int(row[0]):row[1] for row in self.db.conn.execute("SELECT transaction_id,note FROM transaction_comments")}
+        previously_selected = self.selected_id()
         self.table.setUpdatesEnabled(False)
+        blocker = QSignalBlocker(self.table)
         try:
             self.table.clearSelection()
             self.table.setRowCount(len(results))
@@ -926,8 +1092,15 @@ class Window(QMainWindow):
                         item.setForeground(QColor("#e2c58c"))
                     if col==1 and r.source_cell:
                         item.setToolTip(f"Original: {r.source_period}\nCell: {r.source_cell}\nSource ID: {r.source_uid}")
+                    if col == 1:
+                        note=notes.get(r.id, "")
+                        if note:
+                            item.setToolTip((item.toolTip()+"\n" if item.toolTip() else "")+"Note: "+note)
                     self.table.setItem(row,col,item)
+                if r.id == previously_selected:
+                    self.table.selectRow(row)
         finally:
+            del blocker
             self.table.setUpdatesEnabled(True)
         self.count_label.setText(f"{len(results):,} of {len(self.all_entries):,} transactions")
         self.update_selection()
@@ -935,6 +1108,7 @@ class Window(QMainWindow):
     def render_monthly(self):
         months=list(reversed(self.db.monthly_totals()))
         self.monthly.setUpdatesEnabled(False)
+        blocker = QSignalBlocker(self.monthly)
         try:
             self.monthly.setRowCount(len(months))
             for row,m in enumerate(months):
@@ -952,7 +1126,135 @@ class Window(QMainWindow):
                         cell.setForeground(QColor("#ffb5b9"))
                     self.monthly.setItem(row,col,cell)
         finally:
+            del blocker
             self.monthly.setUpdatesEnabled(True)
+
+    def apply_theme(self):
+        mode=effective_theme(self.theme_preference)
+        self.setStyleSheet(stylesheet(STYLE,mode,self.accent))
+        self.canvas.theme_mode=mode
+        self.canvas.update()
+        # Explicit Qt palette fix for sidebar on Windows (Qt viewport paints separately).
+        bg=theme_background(mode)
+        for widget in (self.side_scroll.viewport(),self.side_content):
+            widget.setStyleSheet(f"background-color: {bg};")
+
+    def appearance_dialog(self):
+        dlg=QDialog(self)
+        dlg.setWindowTitle("Appearance")
+        layout=QVBoxLayout(dlg)
+        layout.addWidget(label("Theme and accent color", "section"))
+        mode=QComboBox()
+        mode.addItems(["Dark","Light","System"])
+        mode.setCurrentText(self.theme_preference)
+        layout.addWidget(mode)
+        layout.addWidget(label("Accent color", "muted"))
+        presets=QHBoxLayout()
+        for shade in ("#81e0ce","#70a7ed","#b6a0f4","#edaa75","#9ad081"):
+            b=button("")
+            b.setToolTip(shade)
+            preview=QPixmap(28,28)
+            preview.fill(Qt.GlobalColor.transparent)
+            painter=QPainter(preview)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            painter.setPen(QPen(QColor("#ffffff"),2))
+            painter.setBrush(QColor(shade))
+            painter.drawEllipse(3,3,22,22)
+            painter.end()
+            b.setIcon(QIcon(preview))
+            b.setIconSize(preview.size())
+            b.clicked.connect(lambda checked=False,color=shade: self.set_accent(color))
+            presets.addWidget(b)
+        layout.addLayout(presets)
+        custom=button("Choose custom color…")
+        def pick():
+            chosen=QColorDialog.getColor(QColor(self.accent),dlg,"Choose GlassBalance accent", QColorDialog.ColorDialogOption.DontUseNativeDialog)
+            if chosen.isValid(): self.set_accent(chosen.name())
+        custom.clicked.connect(pick)
+        layout.addWidget(custom)
+        mode.currentTextChanged.connect(self.set_theme)
+        close=button("Close")
+        close.clicked.connect(dlg.accept)
+        layout.addWidget(close)
+        dlg.exec()
+
+    def set_theme(self,mode):
+        self.theme_preference=mode
+        self.update_settings.setValue("appearance/theme",mode)
+        self.apply_theme()
+
+    def set_accent(self,color):
+        if not QColor(color).isValid(): return
+        self.accent=QColor(color).name()
+        self.update_settings.setValue("appearance/accent",self.accent)
+        self.apply_theme()
+
+    def selected_entry_at(self,row):
+        item=self.table.item(row,0)
+        if not item: return None
+        entry_id=item.data(Qt.ItemDataRole.UserRole)
+        return next((e for e in self.all_entries if e.id==entry_id),None)
+
+    def transaction_menu(self,position):
+        row=self.table.rowAt(position.y())
+        if row<0: return
+        self.table.selectRow(row)
+        entry=self.selected_entry_at(row)
+        if entry is None: return
+        menu=QMenu(self)
+        edit=menu.addAction("Edit transaction")
+        note=menu.addAction("Add / edit comment")
+        similar=menu.addAction("Find matching transactions")
+        track=menu.addAction("Track as lending / borrowing")
+        repayment=menu.addAction("Link as repayment…")
+        menu.addSeparator()
+        delete=menu.addAction("Delete transaction…")
+        picked=menu.exec(self.table.viewport().mapToGlobal(position))
+        if picked==edit: self.edit_transaction()
+        elif picked==note: self.edit_comment(entry)
+        elif picked==similar:
+            keyword=entry.description.strip().split()[0] if entry.description.strip() else ""
+            self.balance_query.setText(keyword)
+            self.navigate(2)
+        elif picked==track: self.track_loan_entry(entry)
+        elif picked==repayment: self.link_repayment_entry(entry)
+        elif picked==delete: self.delete_transaction()
+
+    def edit_comment(self,entry):
+        previous=self.db.comment(entry.id)
+        note,ok=QInputDialog.getMultiLineText(self,"Transaction comment",
+                                                f"Note for {entry.description}:",previous)
+        if ok:
+            try:
+                self.db.set_comment(entry.id,note)
+                self.render_transactions()
+            except Exception as exc: error(self,"Unable to save comment",exc)
+
+    def track_loan_entry(self,entry):
+        person,ok=QInputDialog.getText(self,"Track lending or borrowing","Person:")
+        if not ok: return
+        if not confirm(self,"Confirm loan tracking",f"Track {entry.description} ({display_money(entry.mills)}) as a loan with {person}?\nThis will not change the ledger balance."):
+            return
+        try:
+            unbalanced.register_loan(self.db,entry.id,person)
+            self.render_loans()
+        except Exception as exc: error(self,"Cannot track loan",exc)
+
+    def link_repayment_entry(self,entry):
+        loans=[x for x in unbalanced.loan_rows(self.db) if x.outstanding_mills>0]
+        if not loans:
+            return message(self,"No pending loans","There are no outstanding loans to link.")
+        choices=[f"{x.person} — {display_money(x.outstanding_mills)} remaining (#{x.id})" for x in loans]
+        choice,ok=QInputDialog.getItem(self,"Select pending loan","Link repayment to:",choices,0,False)
+        if not ok: return
+        loan=loans[choices.index(choice)]
+        if not confirm(self,"Confirm repayment link",
+               f"Link {entry.description} ({display_money(entry.mills)}) to {loan.person}?\nThe ledger amount will not change."):
+            return
+        try:
+            unbalanced.confirm_repayment(self.db,loan.id,entry.id)
+            self.render_loans()
+        except Exception as exc: error(self,"Cannot link repayment",exc)
 
     def selected_id(self) -> int | None:
         if self.tabs.currentIndex()!=0 or not self.table.selectionModel().hasSelection():
@@ -969,7 +1271,7 @@ class Window(QMainWindow):
         self.delete_button.setEnabled(enabled)
 
     def add_transaction(self):
-        dialog=TransactionDialog(self)
+        dialog=TransactionDialog(self, suggestions=self.description_suggestions())
         if dialog.exec()==QDialog.DialogCode.Accepted:
             try:
                 self.db.add(dialog.checked_date,dialog.checked_name,dialog.checked_mills,dialog.checked_status)
@@ -983,7 +1285,7 @@ class Window(QMainWindow):
         entry=next((e for e in self.all_entries if e.id==chosen),None)
         if entry is None:
             return
-        dialog=TransactionDialog(self,entry)
+        dialog=TransactionDialog(self,entry, suggestions=self.description_suggestions())
         if dialog.exec()==QDialog.DialogCode.Accepted:
             try:
                 self.db.edit(entry.id,dialog.checked_date,dialog.checked_name,

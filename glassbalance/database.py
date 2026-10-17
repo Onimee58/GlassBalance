@@ -11,6 +11,7 @@ from typing import Iterable
 from uuid import uuid4
 
 from .money import mills_as_decimal
+from . import comments
 
 
 def utc_now() -> str:
@@ -70,6 +71,14 @@ class Ledger:
             );
             CREATE INDEX IF NOT EXISTS idx_tx_date ON transactions(tx_date);
         """)
+
+        comments.install(self.conn)
+
+    def comment(self, tx_id: int) -> str:
+        return comments.get(self.conn, tx_id)
+
+    def set_comment(self, tx_id: int, note: str) -> None:
+        comments.set_note(self.conn, tx_id, note)
 
     def close(self) -> None:
         self.conn.close()
