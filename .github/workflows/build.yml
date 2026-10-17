@@ -33,15 +33,36 @@ jobs:
         run: python -m unittest discover -s tests -v
       - name: Bundle lightweight maintainer avatar (optional)
         run: python scripts/fetch_avatar.py
-      - name: Ensure assets directory exists
-        run: python -c "from pathlib import Path; Path('glassbalance/assets').mkdir(parents=True, exist_ok=True)"
       - name: Build native desktop bundle
         run: python scripts/build_bundle.py
-      - name: Package platform bundle
+      - name: Package portable bundle
         run: python scripts/package.py ${{ matrix.label }}
-      - name: Publish build artifact
+      - name: Build Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install innosetup --yes --no-progress
+          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' 'packaging\windows\GlassBalance.iss'
+      - name: Build Ubuntu Debian package
+        if: runner.os == 'Linux'
+        run: python scripts/build_deb.py
+      - name: Publish portable bundle
         uses: actions/upload-artifact@v4
         with:
-          name: GlassBalance-${{ matrix.label }}
+          name: GlassBalance-${{ matrix.label }}-Portable
           path: GlassBalance-${{ matrix.label }}.zip
+          if-no-files-found: error
+      - name: Publish Windows installer
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: GlassBalance-Windows-Setup
+          path: installer-out/*.exe
+          if-no-files-found: error
+      - name: Publish Ubuntu installer
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: GlassBalance-Ubuntu-DEB
+          path: glassbalance_*.deb
           if-no-files-found: error
