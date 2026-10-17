@@ -1,59 +1,65 @@
 # GlassBalance
 
-Created and maintained by **[@Onimee58](https://github.com/Onimee58)** · started October 2026.
+**Offline-first personal finance for Windows and Linux** · Created and maintained by [@Onimee58](https://github.com/Onimee58) · MIT licensed
 
-**A private, open-source balance tracker for Windows and Linux.**
+GlassBalance is a native Python/PySide6 (Qt 6) desktop application for maintaining a private, continuous balance ledger. Income and expenses are entered as signed transactions, and the running balance is recalculated from the opening balance and recorded entries. Your records are stored in a local SQLite database—no account, browser, or cloud service is required.
 
-GlassBalance is a **native Qt desktop app**, not a website or Electron/browser wrapper. It reproduces the key behavior of a continuous spreadsheet ledger: each signed transaction increases or decreases a single running balance. It works offline and uses a local SQLite database.
+> **Current pre-release: v0.3.0-alpha.1 — Personalization & Smart Ledger.** This is testing software. Make a backup of your database before upgrading or importing data. Windows and Linux packages should be tested on their target systems before being treated as production-ready.
 
-## New in v0.2.0-alpha.2
+## What's new in v0.3.0-alpha.1
 
-- **Balance Search** is a dedicated tab: enter a phrase to see all matching ledger descriptions, money in, money out, and net total.
-- **Unbalanced** is an opt-in loan tracker. Click **Track selected transaction as loan**, select an original loan transaction, and name the person. Money lent is a negative transaction; money borrowed is positive.
-- Select a loan and choose **Review possible refunds** to review matching transactions. Every individual repayment needs explicit confirmation; declining a suggestion keeps it from repeating for the same loan.
-- Loan settlement links do **not** alter ledger transactions or your overall balance. You can unlink repayments. Existing histories continue unchanged.
-- **About** has maintainer credit and an offline-bundled profile image if GitHub Actions can fetch one at package build time; otherwise there is a fallback mark.
+### Personalization
 
-**Current alpha.2 limitations:** Initial registration uses an existing transaction selection list. Refund suggestions look for a person name and the keywords `refund`, `repay`, or `return`. Manual selection of other repayments and deleting loan classifications will follow. Editing an amount linked to a loan is blocked until you unlink it. As always, keep a local backup before upgrading.
+- Dark, Light, and System appearance modes.
+- Five accent-color presets, plus an expanded custom color dialog with precise color selection.
+- Appearance choices saved across restarts.
 
-## Previously in v0.2.0-alpha
+### Faster transaction workflows
 
-- Rebuilt the Qt desktop interface with a more deliberate glass-inspired visual hierarchy.
-- Brand-new navigation sidebar and balance hero.
-- Native, dependency-free mini chart of the last 90 running balances.
-- Reorganized income and expenses overview and streamlined transaction workspace.
-- **About GlassBalance** screen credits [@Onimee58](https://github.com/Onimee58), the founding maintainer.
-- Fully reuses the v0.1 SQLite ledger; no migration or reimport is necessary.
+- Description autocomplete based on entries already in your ledger when adding or editing transactions.
+- Autocomplete in Transactions search and **Balance Search**; matches are case-insensitive.
+- A right-click transaction menu for common actions, including editing, comments, matching transactions, and loan tracking.
+- Notes/comments attached to individual transactions.
+- **Balance Search** displays matching transactions and separate money-in, money-out, and net totals.
+- Search fields better match their tabs: transaction filtering on Transactions, aggregate search on Balance Search, and person/description filtering on Unbalanced.
 
-This is a **visual redesign alpha**. Automatic sync, new categorization and standalone installers are not included in this milestone. Existing Excel import/export, manual encrypted email backups and transaction editing are preserved.
+### Unbalanced: borrowing, lending, and repayments
 
-## Features in 0.2.0-alpha
+- Track an existing transaction as money lent or borrowed without recording it twice.
+- Review proposed repayments and explicitly confirm each link; unlink incorrect associations.
+- Select, search, and **remove an Unbalanced tracking record** with confirmation. Removing tracking does **not** delete the original ledger transaction or change your running balance.
+- Loan and repayment relationships remain separate from the financial ledger.
 
-- **Continuous ledger:** opening balance + signed transactions. The opening balance is not income.
-- **Transaction editor:** description, signed amount, calendar date, estimated/confirmed date.
-- **Search and date filters:** all dates, current/previous month, custom date range.
-- **Monthly history:** money in, money out, net change, closing balance.
-- **Original spreadsheet import:** recognizes the old horizontally arranged `Name | Bill or Income | Amount` sections in one `.xlsx` worksheet.
-- **Curated data import:** recognizes the normalized historical `.xlsx` and `.csv` format.
-- **Safe repeat imports:** stable source IDs prevent the same historical transactions from being inserted twice.
-- **Exact amounts:** stores thousandths of a dollar internally to preserve two historical three-decimal-place entries. Most amounts display to two decimals.
-- **Backups:** export CSV/XLSX, or back up/restore the complete SQLite ledger.
-- **Optional encrypted email snapshots:** AES-256-GCM encrypted backup sent to yourself over SMTP and retrieved over IMAP. Decryption requires a separate passphrase that is not stored.
+### Updates and reliability
 
-### Current limitations
+- Optional update checks against official GitHub releases and a manual **Check for updates** control in About.
+- A notification indicator when an update is available; updates are **not** automatically installed.
+- Improved transaction-table performance for large ledgers, including a fix for an Ubuntu UI freeze after saving edits.
+- Improved visibility of accent swatches and Unbalanced selection controls.
 
-This is an **alpha desktop release/source project**. It has not yet undergone full native UI testing or installer signing on Windows/Linux. **Email backups are manual snapshot transfer, not automatic two-way sync.** If you restore an old email snapshot, it replaces current local data; GlassBalance first creates a local safety backup and asks for confirmation. Local SQLite data is **not encrypted at rest** by default; use your operating system's full-disk encryption.
+**Privacy:** All financial records remain local during normal use. Checking for updates requires an internet connection to GitHub; optional encrypted email backups contact the email servers you configure. There is no automatic transaction upload or cloud sync.
 
-There is no live bank connection, budget-limit forecasting, or cloud service. The source distribution includes **no private financial records**.
+## Existing capabilities
 
-## Get started on Windows
+- Continuous ledger with opening balance, signed transactions, running balance, and estimated/confirmed dates.
+- Add, edit, delete, search, and filter transactions; monthly income, expenses, net change, and closing balance.
+- Balance overview with a recent-balance mini chart.
+- Import original historical Excel workbooks and normalized `.xlsx`/`.csv` ledgers; repeat imports use stable source IDs to avoid duplicates.
+- CSV/XLSX exports and complete local SQLite backup/restore.
+- Optional manually triggered AES-256-GCM encrypted email snapshots (SMTP/IMAP).
+- Native Windows and Linux desktop builds via GitHub Actions; Linux user-level launcher installation script.
 
-1. Install [Python 3.11 or newer](https://www.python.org/downloads/), and check **Add Python to PATH** during setup.
-2. Extract the source ZIP to a folder.
-3. Double-click **`run-windows.bat`**. It creates a virtual environment and installs dependencies on the first run, then launches the app. An internet connection is needed to download packages the first time.
-4. Select **Import Excel / CSV** and choose your curated ledger or your original Excel workbook.
+## Downloads and installation
 
-Alternatively, open PowerShell in this directory and run:
+Visit [GitHub Releases](https://github.com/Onimee58/GlassBalance/releases) for available Windows and Linux packages. **v0.3.0-alpha.1 is a pre-release**; back up your data before testing it.
+
+### Run from source on Windows
+
+1. Install [Python 3.11+](https://www.python.org/downloads/), ensuring Python is on your PATH.
+2. Download or clone this repository.
+3. Double-click `run-windows.bat`. The first run creates a virtual environment and installs dependencies.
+
+Or use PowerShell in the project directory:
 
 ```powershell
 py -3 -m venv .venv
@@ -61,17 +67,16 @@ py -3 -m venv .venv
 .venv\Scripts\python.exe app.py
 ```
 
-## Get started on Linux
+### Run from source on Linux
 
-Install Python 3.11+, `python3-venv`, and desktop libraries required by Qt. Most modern desktop distributions have Qt's prerequisites; on some Ubuntu/Debian systems you may need `libxcb-cursor0` and `libegl1`.
+Install Python 3.11+, `python3-venv`, and the Qt runtime libraries required by your distribution. Some Ubuntu/Debian installations also need `libxcb-cursor0` and `libegl1`.
 
 ```bash
-cd glass_balance
 chmod +x run-linux.sh
 ./run-linux.sh
 ```
 
-Or run directly:
+Or:
 
 ```bash
 python3 -m venv .venv
@@ -79,92 +84,74 @@ python3 -m venv .venv
 .venv/bin/python app.py
 ```
 
-No internet connection is required to use the app after installing dependencies, unless you choose to use the optional email backup feature.
+An internet connection may be required once to install Python dependencies. GlassBalance itself works offline afterward, except when using optional update checking or email backup.
 
-## Generate standalone Windows / Linux builds
+### Packaged Linux desktop launcher
 
-This repository contains a GitHub Actions workflow at `.github/workflows/build.yml`.
+When using the Linux application ZIP produced by GitHub Actions, extract the application first and run `bash install-linux.sh` from the extracted package to install the GlassBalance launcher and icon for your user account (without `sudo`). Launch from the application menu to get the correct dock icon. Use `bash uninstall-linux.sh` to remove the installed application; it does not delete your finance records.
 
-1. Create a GitHub repository from this source (do **not** upload your private balance sheets).
-2. On GitHub, open **Actions → Build desktop packages → Run workflow**.
-3. Download the Windows or Linux artifact. These are PyInstaller **one-directory** builds; keep all files together. On Windows run `GlassBalance.exe`; on Linux run `GlassBalance`.
+### Build packages with GitHub Actions
 
-Standalone build artifacts are platform-specific and are not included in the source ZIP.
+The `.github/workflows/build.yml` workflow creates platform-specific PyInstaller packages:
 
-## Importing your old spreadsheet
+1. Open the repository's **Actions** tab.
+2. Select **Build desktop packages** and run the workflow on the release branch or tag.
+3. Download the build artifacts and verify them on Windows and Linux before publishing.
 
-Use **Import Excel / CSV** and select either:
+PyInstaller's one-directory application builds must be kept intact; do not move only the executable out of its package directory. Distributed Windows binaries may show a SmartScreen warning because they are unsigned.
 
-- Your **original** workbook with many horizontal transaction sections, or
-- The companion **curated** `.xlsx`/`.csv` containing dated transactions.
+## Using the ledger
 
-For historical rows without original dates, the direct importer estimates:
+Amounts are signed: `2500` is income, `-35.50` is an expense. For lending, the original amount you lend is a negative ledger transaction, and a repayment received is positive; borrowing follows the opposite signs. Unbalanced links are tracking metadata, not additional financial transactions.
 
-1. A salary labeled `August Salary` → **August 31** (last calendar day of the month worked).
-2. The following month's housing rent → **September 2**.
-3. Other transactions → spaced through September, with original ordering preserved in a separate source-order field.
+Double-click a transaction to edit it, or right-click for additional actions. Previous descriptions appear as suggestions while typing. Search **Transactions** to filter the ledger; use **Balance Search** to calculate totals for a phrase (for example, `walmart`). Choose **Unbalanced** to review outstanding loans and associated repayments. Removing a loan from Unbalanced only removes its tracking classification, after confirmation.
 
-Every inferred date is labeled **Estimated**. Selecting a different date in the editor automatically marks it **Confirmed**. **No historical dates are represented as verified facts.** For repeat imports, the same source cell has a stable ID and is skipped rather than duplicated.
+Deleting an actual transaction from the Transactions tab **does** change the running balance. Back up first when performing bulk changes or imports.
 
-The imported opening balance is stored separately and never counted as earnings. Running balances are recalculated from every underlying transaction. The app **does not import potentially inaccurate Excel running-balance formulas**.
+## Historical Excel importing
 
-**Note:** If your historical workbook is corrected after an import, importing it again will *skip* existing source IDs rather than change records you've already reviewed or edited. Export/backup first before rebuilding an imported ledger from scratch.
+Use **Import Excel / CSV** to load either an original horizontal `Name | Bill or Income | Amount` workbook or a normalized historical `.xlsx`/`.csv` ledger.
 
-## How to enter transactions
+When historical dates are absent, the importer estimates dates (for example, the end of a salary month), preserves original ordering, and marks those dates **Estimated** rather than confirmed facts. You can edit and confirm them later. The original opening balance is stored separately, not counted as income; running balances are calculated from imported transactions rather than copied from spreadsheet formulas.
 
-- A salary of 2,000 → enter `2000`.
-- A grocery expense of 35.50 → enter `-35.50`.
-- Money lent to someone → enter a negative amount; repayment → enter a positive amount.
-- Set the **Date** with the calendar and choose whether that date is confirmed or estimated.
+Stable source identifiers prevent repeated imports from adding the exact same historical records. **Re-importing corrected source files does not automatically update previously imported entries**; back up before restructuring an imported ledger.
 
-Double-click a row to edit. Deleting a row immediately recalculates subsequent balances.
+## Backup, restore, and data privacy
 
-## Email backup / restore (optional)
+- Use local backup/restore to make a copy of the complete `balance.sqlite` database.
+- Optionally send an encrypted snapshot to your own email account using SMTP and retrieve it using IMAP. These are **manual snapshots, not two-way sync**.
+- Encrypted email snapshots use AES-256-GCM and a separate passphrase. Avoid reusing your email password for encryption. Some providers require OAuth, which this feature does not currently implement.
+- Restoring an older snapshot may overwrite newer local work. GlassBalance requests confirmation and creates a local safety backup before restoring.
+- Local SQLite storage is **not encrypted at rest by default**; enable operating-system full-disk encryption if you need that protection.
 
-Select **Email backups**. Supply your email address, SMTP/IMAP host and port, an email **app password** if your provider supports that authentication method, and a different encryption passphrase (12+ characters).
+The application data location is determined by Qt: typically an application-data directory under `%LOCALAPPDATA%`/`%APPDATA%` on Windows and `~/.local/share/GlassBalance/` on Linux. The main file is `balance.sqlite`; local safety copies are stored in `backups/`.
 
-- **Send encrypted backup** securely mails an AES-256-GCM encrypted SQLite snapshot to your own inbox.
-- **Restore newest email backup** downloads the latest matching attachment, decrypts it, creates a local safety backup, and replaces the local ledger **only after warning you**.
+**Never commit personal ledger databases, balance spreadsheets, backup archives, or credentials to a public GitHub repository.** The project source distributions do not contain personal financial records.
 
-Passwords/passphrases are held only during this dialog, not written to disk. Email address and host/port settings may be remembered. Some email providers require OAuth instead of app passwords; OAuth is **not implemented yet**, so this feature won't work with every provider. Do **not** reuse your email password as your encryption passphrase.
+## Development and testing
 
-Do not use the manual email feature as simultaneous two-device sync: an old restore may overwrite newer changes from another device. Conflict-aware synchronization is a planned separate feature.
-
-## Where your records live
-
-- **Windows:** the platform's Qt application data directory for `GlassBalance`, normally under `%LOCALAPPDATA%` or `%APPDATA%`.
-- **Linux:** the user's application-data directory, normally `~/.local/share/GlassBalance/` (may vary with system environment variables).
-
-The filename is `balance.sqlite`. Local safety backups are placed in a `backups/` subdirectory.
-
-## Tests
-
-These cover workbook imports, salary/rent dating, fractional-cent preservation, deduplication, running balances, CSV/XLSX round-trips, database backups/restores, and encryption. No PySide6 installation is required for these core tests:
+The project uses Python 3.11+, PySide6/Qt 6, SQLite, `openpyxl`, and `cryptography`. Core automated tests can run without installing PySide6:
 
 ```bash
 python -m unittest discover -s tests -v
 ```
 
-## Technology and license
+The v0.3.0-alpha.1 development build passed **17 automated tests** and the newest features were manually checked during Ubuntu development. Test packaged binaries separately on both operating systems.
 
-- Python 3.11+
-- PySide6 / Qt 6 (`QWidget`, no web views)
-- SQLite (Python standard library)
-- `openpyxl` for Excel import/export
-- `cryptography` for authenticated AES encryption
+## Release roadmap
 
-Application source code is **MIT licensed** (see `LICENSE`). Third-party dependencies have their **own licenses**. PySide6/Qt is made available under LGPL/GPL/commercial options, and redistribution must respect the applicable Qt licensing and other dependency requirements. The source ZIP deliberately contains no original or curated private ledger records.
+| Milestone | Focus |
+| --- | --- |
+| **v0.3.0-alpha.1** | Themes, accent colors, autocomplete, transaction comments/context menu, Unbalanced improvements, update checker, performance fixes |
+| **v0.3.0-alpha.2** | Categories, undo deletion, financial charts, recurring transactions |
+| **v0.3.0-beta.1** | Feature stabilization, defect fixes, performance and Windows/Linux release testing |
+| **v0.3.0** | Stable release |
+| **v0.4.0** | PDF bank statement import and receipt processing, with review and duplicate detection |
 
-## Suggested next milestones
+PDF and receipt processing are **not included in v0.3.x**. Cross-device, conflict-aware encrypted synchronization is also a future project, not a feature of the current manual email backup system.
 
-1. Review screen for bulk correcting historical *estimated* dates.
-2. Optional categories, tags, recurring entries, and budgets without disrupting the running-balance ledger.
-3. Conflict-aware encrypted sync across devices with transaction IDs/revisions and recovery snapshots.
-4. Signed installers and Linux AppImage/Flatpak builds.
+## License and contributions
 
-Contributions and bug reports are welcome once you publish the repository.
+GlassBalance is released under the [MIT License](LICENSE). Third-party components have separate licenses; PySide6/Qt redistribution must satisfy the applicable LGPL/GPL/commercial terms and other dependencies' requirements.
 
-
-## Linux desktop integration (v0.2.0-beta.1)
-
-The GitHub Actions Linux application ZIP includes `install-linux.sh` and `uninstall-linux.sh`. After extracting the **inner** Linux ZIP, run `bash install-linux.sh` to install the executable and its G + Wallet launcher into your user account (no sudo). Launch from the Ubuntu app menu for the dock icon; `bash uninstall-linux.sh` removes installed application files but not financial data. See [BETA1_NOTES.md](BETA1_NOTES.md).
+Bug reports and contributions are welcome at [github.com/Onimee58/GlassBalance](https://github.com/Onimee58/GlassBalance).
