@@ -26,6 +26,7 @@ class ImportTransaction:
     source_period: str = ""
     source_cell: str = ""
     source_order: int | None = None
+    category: str = ""
 
 
 @dataclass
@@ -238,7 +239,8 @@ def _from_rows(rows: list[dict], file_fingerprint: str, fmt: str) -> ImportData:
         raw_order=r.get("source order")
         order=None if raw_order is None or str(raw_order).strip()=="" else int(raw_order)
         imported.append(ImportTransaction(when,desc,mills,status,source_id,
-                        str(r.get("source period") or ""),str(r.get("source cell") or ""),order))
+                        str(r.get("source period") or ""),str(r.get("source cell") or ""),order,
+                        str(r.get("category") or "").strip()))
     return ImportData(imported,opening,opening_date,opening_status,fmt,
                       "Estimated dates are carried through from the imported sheet. Manual edits in the app will mark dates as confirmed.")
 

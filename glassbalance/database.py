@@ -11,7 +11,7 @@ from typing import Iterable
 from uuid import uuid4
 
 from .money import mills_as_decimal
-from . import comments
+from . import comments, categories, recurring, unbalanced
 
 
 def utc_now() -> str:
@@ -72,7 +72,24 @@ class Ledger:
             CREATE INDEX IF NOT EXISTS idx_tx_date ON transactions(tx_date);
         """)
 
+        self._install_extensions()
+
+    def _install_extensions(self) -> None:
+        """Create optional feature tables. Idempotent; never touches existing rows."""
         comments.install(self.conn)
+        unbalanced.install(self)
+        categories.install(self.conn)
+        recurring.install(self.conn)
+
+    def category(self, tx_id: int) -> str:
+        return categories.get(self.conn, tx_id)
+
+    def set_category(self, tx_id: int, name: str | None) -> str:
+        return categories.set_category(self.conn, tx_id, name)
+
+    def loan_linked(self, tx_id: int) -> bool:
+        return self.conn.execute("""SELECT 1 FROM loan_records WHERE origin_tx_id=?
+            UNION SELECT 1 FROM loan_repayments WHERE repayment_tx_id=?""",(tx_id,tx_id)).fetchone() is not None
 
     def comment(self, tx_id: int) -> str:
         return comments.get(self.conn, tx_id)
@@ -143,11 +160,60 @@ class Ledger:
             if cur.rowcount!=1:
                 raise ValueError("The selected transaction no longer exists.")
 
-    def delete(self, entry_id: int) -> None:
+    def delete(self, entry_id: int) -> dict:
+        """Delete one transaction and return a snapshot that restore_deleted() accepts.
+
+        Loan-linked transactions are refused: deleting them would cascade away loan
+        history that an undo could not faithfully rebuild.
+        """
+        if self.loan_linked(entry_id):
+            raise ValueError("This transaction is tracked in Unbalanced. Unlink the repayment or remove "
+                             "the loan tracking before deleting it.")
+        row=self.conn.execute("SELECT * FROM transactions WHERE id=?",(entry_id,)).fetchone()
+        if row is None:
+            raise ValueError("The selected transaction no longer exists.")
+        snapshot={
+            "transaction": dict(row),
+            "comment": comments.get(self.conn, entry_id),
+            "category": categories.get(self.conn, entry_id),
+            "recurring_posts": [dict(r) for r in self.conn.execute(
+                "SELECT template_id,month FROM recurring_posts WHERE transaction_id=?",(entry_id,))],
+            "dismissed": [int(r[0]) for r in self.conn.execute(
+                "SELECT loan_id FROM dismissed_suggestions WHERE repayment_tx_id=?",(entry_id,))],
+        }
         with self.conn:
             cur=self.conn.execute("DELETE FROM transactions WHERE id=?",(entry_id,))
             if cur.rowcount!=1:
                 raise ValueError("The selected transaction no longer exists.")
+        return snapshot
+
+    def restore_deleted(self, snapshot: dict) -> int:
+        """Re-insert a deleted transaction with its original ID, comment and category."""
+        tx=snapshot["transaction"]
+        if self.conn.execute("SELECT 1 FROM transactions WHERE id=? OR source_uid=?",
+                             (tx["id"],tx["source_uid"])).fetchone():
+            raise ValueError("This transaction already exists; nothing was restored.")
+        cols=["id","tx_date","description","amount_mills","date_status","source_uid","source_period",
+              "source_cell","source_order","created_at","updated_at"]
+        with self.conn:
+            self.conn.execute(f"INSERT INTO transactions({','.join(cols)}) VALUES({','.join('?'*len(cols))})",
+                              [tx[c] for c in cols])
+            if snapshot.get("comment"):
+                self.conn.execute("INSERT INTO transaction_comments(transaction_id,note) VALUES(?,?)",
+                                  (tx["id"],snapshot["comment"]))
+            if snapshot.get("category"):
+                self.conn.execute("INSERT INTO transaction_categories(transaction_id,category) VALUES(?,?)",
+                                  (tx["id"],snapshot["category"]))
+            for post in snapshot.get("recurring_posts",[]):
+                # Restore the post record only if its template still exists and the month
+                # was not posted again in the meantime.
+                self.conn.execute("""INSERT OR IGNORE INTO recurring_posts(template_id,month,transaction_id)
+                    SELECT ?,?,? WHERE EXISTS (SELECT 1 FROM recurring_templates WHERE id=?)""",
+                    (post["template_id"],post["month"],tx["id"],post["template_id"]))
+            for loan_id in snapshot.get("dismissed",[]):
+                self.conn.execute("""INSERT OR IGNORE INTO dismissed_suggestions(repayment_tx_id,loan_id)
+                    SELECT ?,? WHERE EXISTS (SELECT 1 FROM loan_records WHERE id=?)""",(tx["id"],loan_id,loan_id))
+        return int(tx["id"])
 
     def entries(self) -> list[Entry]:
         # Imported source order is used ONLY for same-day tie-breaking; chronological
@@ -196,6 +262,7 @@ class Ledger:
                 raise ValueError("Import file contains duplicate source IDs.")
             seen.add(tx.source_uid)
             self._check_entry(tx.date,tx.description,tx.mills,tx.date_status)
+            categories.clean(getattr(tx,"category",""))
         current_opening=self.opening()[0]
         if data.opening_mills is not None and (self.count()>0 or current_opening != 0) and current_opening != data.opening_mills:
             raise ValueError("Opening balance differs from your existing ledger. Import canceled to protect your data.")
@@ -210,12 +277,16 @@ class Ledger:
                 if tx.source_uid in existing:
                     skipped+=1
                     continue
-                self.conn.execute("""INSERT INTO transactions (tx_date,description,amount_mills,
+                cur=self.conn.execute("""INSERT INTO transactions (tx_date,description,amount_mills,
                     date_status,source_uid,source_period,source_cell,source_order,created_at,updated_at)
                     VALUES (?,?,?,?,?,?,?,?,?,?)""", (
                     tx.date, tx.description, tx.mills, tx.date_status, tx.source_uid,
                     tx.source_period, tx.source_cell, tx.source_order, now,now
                 ))
+                category=categories.clean(getattr(tx,"category",""))
+                if category:
+                    self.conn.execute("INSERT INTO transaction_categories(transaction_id,category) VALUES(?,?)",
+                                      (cur.lastrowid,category))
                 inserted+=1
         return inserted,skipped
 
@@ -225,19 +296,21 @@ class Ledger:
 
     def export_csv(self, path: str | Path) -> None:
         fields=["Date","Description","Amount (+/-)","Running balance","Entry type",
-                "Date status","Date rule","Source period","Source cell","Source order","Stable import ID"]
+                "Date status","Date rule","Source period","Source cell","Source order","Stable import ID","Category"]
         opening_mills, opening_date, opening_status=self.opening()
+        cats=categories.mapping(self.conn)
         with open(path,"w",newline="",encoding="utf-8-sig") as fp:
             writer=csv.writer(fp)
             writer.writerow(fields)
             writer.writerow([opening_date,"Opening balance (not income)",mills_as_decimal(opening_mills),
                              mills_as_decimal(opening_mills),"Opening balance",opening_status.title(),
-                             "User-provided balance","","",0,"glassbalance:opening"])
+                             "User-provided balance","","",0,"glassbalance:opening",""])
             for e in self.entries():
                 writer.writerow([e.date,e.description,mills_as_decimal(e.mills),
                                  mills_as_decimal(e.running_mills),"Transaction",e.date_status.title(),
                                  "","" if not e.source_period else e.source_period,
-                                 e.source_cell,e.source_order if e.source_order is not None else "",e.source_uid])
+                                 e.source_cell,e.source_order if e.source_order is not None else "",e.source_uid,
+                                 cats.get(e.id,"")])
 
     def export_xlsx(self, path: str | Path) -> None:
         from openpyxl import Workbook
@@ -245,18 +318,19 @@ class Ledger:
         from openpyxl.worksheet.table import Table, TableStyleInfo
         opening_mills, opening_date, opening_status=self.opening()
         headers=["Date","Description","Amount (+/-)","Running balance","Entry type",
-                 "Date status","Date rule","Source period","Source cell","Source order","Stable import ID"]
+                 "Date status","Date rule","Source period","Source cell","Source order","Stable import ID","Category"]
+        cats=categories.mapping(self.conn)
         wb=Workbook()
         ws=wb.active
         ws.title="Transactions"
         ws.append(headers)
         ws.append([date.fromisoformat(opening_date),"Opening balance (not income)",opening_mills/1000,
-                   opening_mills/1000,"Opening balance",opening_status.title(),"User-provided balance","","",0,"glassbalance:opening"])
+                   opening_mills/1000,"Opening balance",opening_status.title(),"User-provided balance","","",0,"glassbalance:opening",""])
         entries=self.entries()
         for row,e in enumerate(entries,start=3):
             ws.append([date.fromisoformat(e.date),e.description,e.mills/1000,
                        f"=D{row-1}+C{row}","Transaction",e.date_status.title(),"",
-                       e.source_period,e.source_cell,e.source_order,e.source_uid])
+                       e.source_period,e.source_cell,e.source_order,e.source_uid,cats.get(e.id,"")])
         for cell in ws[1]:
             cell.fill=PatternFill("solid",fgColor="26364C")
             cell.font=Font(color="FFFFFF",bold=True)
@@ -269,11 +343,11 @@ class Ledger:
             for col in "CD":
                 if not (col=="C" and i>2 and entries[i-3].mills % 10):
                     ws[f"{col}{i}"].number_format='$#,##0.00;[Red]($#,##0.00);-'
-        for col,w in {"A":16,"B":35,"C":19,"D":19,"E":20,"F":18,"G":20,"H":32,"I":17,"J":17,"K":45}.items():
+        for col,w in {"A":16,"B":35,"C":19,"D":19,"E":20,"F":18,"G":20,"H":32,"I":17,"J":17,"K":45,"L":22}.items():
             ws.column_dimensions[col].width=w
         ws.freeze_panes="C3"
         ws.sheet_view.showGridLines=False
-        ws.auto_filter.ref=f"A1:K{ws.max_row}"
+        ws.auto_filter.ref=f"A1:L{ws.max_row}"
         wb.calculation.fullCalcOnLoad=True
         wb.save(path)
 
@@ -321,3 +395,5 @@ class Ledger:
             source.backup(self.conn)
         finally:
             source.close()
+        # Older backups may predate comments, loans, categories or recurring tables.
+        self._install_extensions()

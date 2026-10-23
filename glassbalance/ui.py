@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox, QFileDialog, QFormLayout, QFrame, QGridLayout,
     QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMainWindow, QMessageBox,
     QPushButton, QSizePolicy, QTabWidget, QTableWidget, QTableWidgetItem,
-    QVBoxLayout, QWidget, QStackedWidget, QGraphicsDropShadowEffect, QInputDialog, QScrollArea, QColorDialog, QMenu, QTextEdit, QCompleter,
+    QVBoxLayout, QWidget, QStackedWidget, QGraphicsDropShadowEffect, QInputDialog, QScrollArea, QColorDialog, QMenu, QTextEdit, QCompleter, QSpinBox,
 )
 
 from . import __version__
@@ -27,7 +27,7 @@ from .database import Entry, Ledger
 from .email_backup import decrypt_snapshot, download_latest_backup, send_backup
 from .importer import load_import
 from .money import as_mills, display_money, mills_as_decimal
-from . import unbalanced
+from . import unbalanced, categories, recurring
 from .themes import stylesheet, effective_theme, theme_background
 
 
@@ -159,6 +159,66 @@ class BalanceChart(QWidget):
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QColor('#d7fff4'))
         painter.drawEllipse(coords[-1],4,4)
+        painter.end()
+
+
+class CategoryChart(QWidget):
+    """Native horizontal bar chart of expenses per category. No web or plotting dependency."""
+    MAX_BARS = 10
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.rows=[]
+        self.theme_mode="dark"
+        self.setMinimumHeight(100)
+        self.setAccessibleName("Expenses by category")
+
+    def set_rows(self, rows):
+        rows=[r for r in rows if r["expense"]>0]
+        if len(rows)>self.MAX_BARS:
+            rest=rows[self.MAX_BARS-1:]
+            rows=rows[:self.MAX_BARS-1]+[{"category":f"Other ({len(rest)} categories)",
+                                           "expense":sum(r["expense"] for r in rest)}]
+        self.rows=rows
+        self.setMinimumHeight(max(100,len(rows)*30+20))
+        self.update()
+
+    def paintEvent(self, event):
+        painter=QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        light=self.theme_mode=="light"
+        text=QColor("#1b3044" if light else "#dbe8f3")
+        muted=QColor("#50667a" if light else "#a4b8cd")
+        if not self.rows:
+            painter.setPen(muted)
+            painter.drawText(self.rect(),Qt.AlignmentFlag.AlignCenter,"Expenses by category will appear here")
+            painter.end()
+            return
+        width=self.width()
+        metrics=painter.fontMetrics()
+        label_w=min(150,int(width*0.32))
+        value_w=max(metrics.horizontalAdvance(f"{display_money(r['expense'])}  100%") for r in self.rows)+6
+        bar_w=max(10,width-label_w-value_w-12)
+        top=max(r["expense"] for r in self.rows)
+        total=sum(r["expense"] for r in self.rows)
+        row_h=30
+        for i,r in enumerate(self.rows):
+            y=10+i*row_h
+            painter.setPen(text)
+            name=painter.fontMetrics().elidedText(r["category"],Qt.TextElideMode.ElideRight,label_w-8)
+            painter.drawText(0,y,label_w-8,row_h-8,Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignVCenter,name)
+            length=max(3,int(bar_w*r["expense"]/top))
+            gradient=QLinearGradient(label_w,0,label_w+length,0)
+            gradient.setColorAt(0,QColor(255,150,160,200) if not light else QColor(186,62,78,190))
+            gradient.setColorAt(1,QColor(255,186,191,150) if not light else QColor(214,110,120,150))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(gradient)
+            painter.drawRoundedRect(label_w,y+3,length,row_h-14,5,5)
+            painter.setPen(muted)
+            pct=r['expense']*100/total if total else 0
+            share=f"{pct:.0f}%" if pct>=1 or not total else "<1%"
+            painter.drawText(label_w+length+8,y,value_w,row_h-8,Qt.AlignmentFlag.AlignLeft|Qt.AlignmentFlag.AlignVCenter,
+                             f"{display_money(r['expense'])}  {share}")
         painter.end()
 
 
@@ -401,6 +461,57 @@ class EmailDialog(QDialog):
             error(self,"Email restore failed",exc)
 
 
+class RecurringDialog(QDialog):
+    """Create a template only. Templates never change balances until posted with confirmation."""
+    def __init__(self,parent,category_names):
+        super().__init__(parent)
+        self.setWindowTitle("New recurring template")
+        self.setMinimumWidth(420)
+        outer=QVBoxLayout(self)
+        outer.setContentsMargins(23,23,23,21)
+        outer.setSpacing(14)
+        outer.addWidget(label("Recurring template","section"))
+        outer.addWidget(label("A template does not change your balance. You post it manually each month, with confirmation.","muted",True))
+        form=QFormLayout()
+        form.setSpacing(12)
+        self.name=QLineEdit()
+        self.name.setPlaceholderText("e.g. Rent, Salary, Netflix")
+        self.amount=QLineEdit()
+        self.amount.setPlaceholderText("e.g. -900.00 or 2500.00")
+        self.day=QSpinBox()
+        self.day.setRange(1,31)
+        self.day.setValue(1)
+        self.day.setToolTip("Short months use their last day (e.g. 31 → Feb 28/29)")
+        self.category=QComboBox()
+        self.category.setEditable(True)
+        self.category.addItems([categories.UNCATEGORIZED]+list(category_names))
+        form.addRow("Description",self.name)
+        form.addRow("Signed amount",self.amount)
+        form.addRow("Day of month",self.day)
+        form.addRow("Category",self.category)
+        outer.addLayout(form)
+        actions=QDialogButtonBox(QDialogButtonBox.StandardButton.Save|QDialogButtonBox.StandardButton.Cancel)
+        actions.accepted.connect(self.validate)
+        actions.rejected.connect(self.reject)
+        outer.addWidget(actions)
+        self.name.setFocus()
+
+    def validate(self):
+        try:
+            if not self.name.text().strip():
+                raise ValueError("Enter a description.")
+            self.checked_mills=as_mills(self.amount.text())
+            if self.checked_mills==0:
+                raise ValueError("Recurring amount cannot be zero.")
+            self.checked_name=self.name.text().strip()
+            self.checked_day=self.day.value()
+            self.checked_category=categories.clean(self.category.currentText())
+        except ValueError as exc:
+            error(self,"Check template",exc)
+            return
+        self.accept()
+
+
 def data_folder() -> Path:
     root=QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)
     if not root:
@@ -435,6 +546,7 @@ class Window(QMainWindow):
         self.latest_release = None
         self.update_inflight = False
         self.update_observers = []
+        self.last_deleted = None
         self.db=Ledger(db_path or (data_folder()/"balance.sqlite"))
         unbalanced.install(self.db)
         self.theme_preference=str(self.update_settings.value("appearance/theme", "Dark"))
@@ -491,7 +603,12 @@ class Window(QMainWindow):
         self.nav_monthly=button("▤    Monthly history","nav")
         self.nav_balance_search=button("⌕    Balance Search","nav")
         self.nav_unbalanced=button("⇄    Unbalanced","nav")
-        for control in (self.nav_overview,self.nav_activity,self.nav_monthly,self.nav_balance_search,self.nav_unbalanced):
+        self.nav_categories=button("◔    Categories","nav")
+        self.nav_recurring=button("↻    Recurring","nav")
+        self.nav_tabs=(self.nav_overview,self.nav_monthly,self.nav_balance_search,
+                       self.nav_unbalanced,self.nav_categories,self.nav_recurring)
+        for control in (self.nav_overview,self.nav_activity,self.nav_monthly,self.nav_balance_search,
+                        self.nav_unbalanced,self.nav_categories,self.nav_recurring):
             sidebar.addWidget(control)
         sidebar.addSpacing(7)
         sidebar.addWidget(label("TOOLS","overline"))
@@ -607,14 +724,14 @@ class Window(QMainWindow):
         activity_layout.addLayout(filters)
 
         self.tabs=QTabWidget()
-        self.table=QTableWidget(0,5)
-        self.table.setHorizontalHeaderLabels(["DATE","DESCRIPTION","CHANGE","RUNNING BALANCE","ACCURACY"])
+        self.table=QTableWidget(0,6)
+        self.table.setHorizontalHeaderLabels(["DATE","DESCRIPTION","CHANGE","RUNNING BALANCE","ACCURACY","CATEGORY"])
         self._setup_table(self.table)
         th=self.table.horizontalHeader()
         # Avoid ResizeToContents on large ledgers: calculating column widths while
         # thousands of QTableWidgetItems are inserted can block the GUI after Save.
         # Keep only the description fluid; numeric/date columns use stable widths.
-        for column, width in ((0, 126), (2, 132), (3, 155), (4, 110)):
+        for column, width in ((0, 126), (2, 132), (3, 155), (4, 104), (5, 132)):
             th.setSectionResizeMode(column, QHeaderView.ResizeMode.Interactive)
             th.resizeSection(column, width)
         th.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
@@ -677,12 +794,68 @@ class Window(QMainWindow):
         self.repay_table.horizontalHeader().setSectionResizeMode(1,QHeaderView.ResizeMode.Stretch)
         ub.addWidget(self.repay_table,1)
         self.tabs.addTab(self.unbalanced_tab,"Unbalanced")
+
+        self.categories_tab=QWidget()
+        ct=QVBoxLayout(self.categories_tab)
+        ct.addWidget(label("Spending and income by category across all transactions. Categories never change your balance.","muted",True))
+        self.cat_totals=label("","muted",True)
+        ct.addWidget(self.cat_totals)
+        self.category_chart=CategoryChart()
+        chart_scroll=QScrollArea()
+        chart_scroll.setWidgetResizable(True)
+        chart_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        chart_scroll.setWidget(self.category_chart)
+        chart_scroll.viewport().setAutoFillBackground(False)
+        self.category_chart.setAutoFillBackground(False)
+        chart_scroll.setMinimumHeight(110)
+        split=QHBoxLayout()
+        split.setSpacing(14)
+        split.addWidget(chart_scroll,5)
+        self.cat_table=QTableWidget(0,5)
+        self.cat_table.setHorizontalHeaderLabels(["CATEGORY","INCOME","EXPENSES","NET","COUNT"])
+        self._setup_table(self.cat_table)
+        ch=self.cat_table.horizontalHeader()
+        ch.setSectionResizeMode(0,QHeaderView.ResizeMode.Stretch)
+        for col,w in ((1,112),(2,118),(3,118),(4,64)):
+            ch.setSectionResizeMode(col,QHeaderView.ResizeMode.Interactive)
+            ch.resizeSection(col,w)
+        split.addWidget(self.cat_table,6)
+        ct.addLayout(split,1)
+        self.tabs.addTab(self.categories_tab,"Categories && charts")
+
+        self.recurring_tab=QWidget()
+        rt=QVBoxLayout(self.recurring_tab)
+        rt.addWidget(label("Templates never change your balance. Post one manually for the current month; each template can post once per month.","muted",True))
+        rt_tools=QHBoxLayout()
+        self.rec_add=button("Add template","primary")
+        self.rec_post=button("Post selected for this month")
+        self.rec_remove=button("Remove template","danger")
+        self.rec_post.setEnabled(False)
+        self.rec_remove.setEnabled(False)
+        for b in (self.rec_add,self.rec_post,self.rec_remove): rt_tools.addWidget(b)
+        rt_tools.addStretch()
+        rt.addLayout(rt_tools)
+        self.rec_table=QTableWidget(0,5)
+        self.rec_table.setHorizontalHeaderLabels(["DESCRIPTION","AMOUNT","DAY","CATEGORY","THIS MONTH"])
+        self._setup_table(self.rec_table)
+        rh=self.rec_table.horizontalHeader()
+        rh.setSectionResizeMode(0,QHeaderView.ResizeMode.Stretch)
+        for col,w in ((1,130),(2,60),(3,140),(4,150)):
+            rh.setSectionResizeMode(col,QHeaderView.ResizeMode.Interactive)
+            rh.resizeSection(col,w)
+        rt.addWidget(self.rec_table,1)
+        self.tabs.addTab(self.recurring_tab,"Recurring")
         activity_layout.addWidget(self.tabs,1)
         bottom=QHBoxLayout()
         bottom.addWidget(label("~ Estimated historical date  ·  Double-click a row to edit","muted",True),1)
+        self.undo_button=button("↶  Undo deletion")
+        self.undo_button.setEnabled(False)
+        self.undo_button.setToolTip("Restore the last deleted transaction (this session only)")
+        bottom.addWidget(self.undo_button)
+        self.category_button=button("Set category")
         self.edit_button=button("Edit selection")
         self.delete_button=button("Delete","danger")
-        for b in (self.edit_button,self.delete_button):
+        for b in (self.category_button,self.edit_button,self.delete_button):
             b.setEnabled(False)
             bottom.addWidget(b)
         activity_layout.addLayout(bottom)
@@ -701,6 +874,14 @@ class Window(QMainWindow):
         self.nav_monthly.clicked.connect(lambda:self.navigate(1))
         self.nav_balance_search.clicked.connect(lambda:self.navigate(2))
         self.nav_unbalanced.clicked.connect(lambda:self.navigate(3))
+        self.nav_categories.clicked.connect(lambda:self.navigate(4))
+        self.nav_recurring.clicked.connect(lambda:self.navigate(5))
+        self.undo_button.clicked.connect(self.undo_deletion)
+        self.category_button.clicked.connect(self.set_selected_category)
+        self.rec_add.clicked.connect(self.add_recurring)
+        self.rec_post.clicked.connect(self.post_recurring)
+        self.rec_remove.clicked.connect(self.remove_recurring)
+        self.rec_table.itemSelectionChanged.connect(self.update_recurring_buttons)
         self.balance_query.textChanged.connect(self.render_balance_search)
         self.loan_new.clicked.connect(self.register_selected_loan)
         self.loan_suggest.clicked.connect(self.review_refunds)
@@ -744,12 +925,10 @@ class Window(QMainWindow):
         return [e.description for e in self.db.entries()]
 
     def _nav_feedback(self, tab: int):
-        self.nav_overview.setObjectName("navActive" if tab==0 else "nav")
-        self.nav_activity.setObjectName("nav" )
-        self.nav_monthly.setObjectName("navActive" if tab==1 else "nav")
-        self.nav_balance_search.setObjectName("navActive" if tab==2 else "nav")
-        self.nav_unbalanced.setObjectName("navActive" if tab==3 else "nav")
-        for control in (self.nav_overview,self.nav_activity,self.nav_monthly,self.nav_balance_search,self.nav_unbalanced):
+        self.nav_activity.setObjectName("nav")
+        for index,control in enumerate(self.nav_tabs):
+            control.setObjectName("navActive" if tab==index else "nav")
+        for control in (self.nav_activity,)+self.nav_tabs:
             control.style().unpolish(control)
             control.style().polish(control)
 
@@ -1040,6 +1219,153 @@ class Window(QMainWindow):
         self.render_monthly()
         self.render_balance_search()
         self.render_loans()
+        self.render_categories()
+        self.render_recurring()
+
+    def render_categories(self):
+        rows=categories.summary(self.db.conn)
+        self.category_chart.set_rows(rows)
+        income=sum(r["income"] for r in rows)
+        expense=sum(r["expense"] for r in rows)
+        self.cat_totals.setText(f"All transactions · Income {display_money(income)} · Expenses {display_money(-expense)} · "
+                                f"Net {display_money(income-expense)} · {sum(r['count'] for r in rows):,} transactions")
+        self.cat_table.setUpdatesEnabled(False)
+        blocker=QSignalBlocker(self.cat_table)
+        try:
+            self.cat_table.setRowCount(len(rows))
+            for i,r in enumerate(rows):
+                values=(r["category"],display_money(r["income"]),display_money(-r["expense"]),
+                        display_money(r["income"]-r["expense"]),f"{r['count']:,}")
+                for col,value in enumerate(values):
+                    cell=QTableWidgetItem(value)
+                    if col:
+                        cell.setTextAlignment(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignVCenter)
+                    self.cat_table.setItem(i,col,cell)
+        finally:
+            del blocker
+            self.cat_table.setUpdatesEnabled(True)
+
+    def render_recurring(self):
+        month=date.today().strftime("%Y-%m")
+        items=recurring.templates(self.db)
+        selected=self.selected_template_id()
+        blocker=QSignalBlocker(self.rec_table)
+        try:
+            self.rec_table.setRowCount(len(items))
+            for i,t in enumerate(items):
+                posted=recurring.posted_transaction(self.db,t.id,month)
+                status=("Posted · "+date.fromisoformat(recurring.post_date(t.day,month)).strftime("%b %d")) if posted else "Not posted"
+                values=(t.name,display_money(t.mills),str(t.day),t.category or categories.UNCATEGORIZED,status)
+                for col,value in enumerate(values):
+                    cell=QTableWidgetItem(value)
+                    cell.setData(Qt.ItemDataRole.UserRole,t.id)
+                    if col in (1,2):
+                        cell.setTextAlignment(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignVCenter)
+                    if col==1:
+                        cell.setForeground(QColor("#99e5be" if t.mills>=0 else "#ffb5b9"))
+                    self.rec_table.setItem(i,col,cell)
+                if t.id==selected:
+                    self.rec_table.selectRow(i)
+        finally:
+            del blocker
+        self.update_recurring_buttons()
+
+    def selected_template_id(self):
+        if not self.rec_table.selectionModel().hasSelection():
+            return None
+        item=self.rec_table.item(self.rec_table.currentRow(),0)
+        return item.data(Qt.ItemDataRole.UserRole) if item else None
+
+    def update_recurring_buttons(self):
+        tid=self.selected_template_id()
+        self.rec_remove.setEnabled(tid is not None)
+        month=date.today().strftime("%Y-%m")
+        self.rec_post.setEnabled(tid is not None and recurring.posted_transaction(self.db,tid,month) is None)
+
+    def add_recurring(self):
+        dialog=RecurringDialog(self,categories.names(self.db.conn))
+        if dialog.exec()==QDialog.DialogCode.Accepted:
+            try:
+                recurring.add_template(self.db,dialog.checked_name,dialog.checked_mills,
+                                       dialog.checked_day,dialog.checked_category)
+                self.render_recurring()
+                self.statusBar().showMessage("Recurring template saved. Your balance did not change.",5000)
+            except Exception as exc:
+                error(self,"Unable to save template",exc)
+
+    def post_recurring(self):
+        tid=self.selected_template_id()
+        template=next((t for t in recurring.templates(self.db) if t.id==tid),None)
+        if template is None:
+            return
+        month=date.today().strftime("%Y-%m")
+        when=recurring.post_date(template.day,month)
+        if not confirm(self,"Post recurring transaction?",
+                       f"Add '{template.name}' ({display_money(template.mills)}) dated {when} to your ledger?\n\n"
+                       "This changes your balance. It can be posted only once for this month."):
+            return
+        try:
+            recurring.post(self.db,template.id,month)
+            self.refresh()
+            self.statusBar().showMessage(f"Posted {template.name} for {month}.",5000)
+        except Exception as exc:
+            error(self,"Unable to post",exc)
+
+    def remove_recurring(self):
+        tid=self.selected_template_id()
+        template=next((t for t in recurring.templates(self.db) if t.id==tid),None)
+        if template is None:
+            return
+        if not confirm(self,"Remove template?",f"Remove the recurring template '{template.name}'?\n\n"
+                       "Transactions it already posted stay in your ledger."):
+            return
+        try:
+            recurring.remove_template(self.db,template.id)
+            self.render_recurring()
+        except Exception as exc:
+            error(self,"Unable to remove template",exc)
+
+    def choose_category(self,entry):
+        current=self.db.category(entry.id) or categories.UNCATEGORIZED
+        options=[categories.UNCATEGORIZED]+[n for n in categories.names(self.db.conn)]
+        if current not in options:
+            options.append(current)
+        name,ok=QInputDialog.getItem(self,"Set category",f"Category for '{entry.description}':\n"
+                                     "(choose or type a new one; balances are not affected)",
+                                     options,options.index(current),True)
+        if not ok:
+            return
+        try:
+            self.db.set_category(entry.id,name)
+            self.render_transactions()
+            self.render_categories()
+            self.render_recurring()
+        except Exception as exc:
+            error(self,"Unable to set category",exc)
+
+    def set_selected_category(self):
+        entry=next((e for e in self.all_entries if e.id==self.selected_id()),None)
+        if entry is not None:
+            self.choose_category(entry)
+
+    def undo_deletion(self):
+        snapshot=getattr(self,"last_deleted",None)
+        if not snapshot:
+            return
+        try:
+            self.db.restore_deleted(snapshot)
+        except Exception as exc:
+            error(self,"Unable to undo",exc)
+        finally:
+            self.last_deleted=None
+            self.undo_button.setEnabled(False)
+        self.refresh()
+        self.statusBar().showMessage(f"Restored '{snapshot['transaction']['description']}'.",5000)
+
+    def forget_undo(self):
+        """Clear session undo when the underlying ledger is replaced (restore)."""
+        self.last_deleted=None
+        self.undo_button.setEnabled(False)
 
     def period_changed(self):
         custom=self.period.currentText()=="Custom dates"
@@ -1049,7 +1375,8 @@ class Window(QMainWindow):
 
     def _current_filter(self,r: Entry) -> bool:
         term=self.search.text().strip().lower()
-        if term and term not in r.description.lower() and term not in r.source_period.lower():
+        if term and term not in r.description.lower() and term not in r.source_period.lower() \
+                and term not in getattr(self,"_filter_categories",{}).get(r.id,"").lower():
             return False
         choice=self.period.currentText()
         if choice=="This month":
@@ -1069,8 +1396,10 @@ class Window(QMainWindow):
     def render_transactions(self):
         if not hasattr(self,"all_entries"):
             return
+        self._filter_categories=categories.mapping(self.db.conn)
         results=[r for r in self.all_entries if self._current_filter(r)]
         notes={int(row[0]):row[1] for row in self.db.conn.execute("SELECT transaction_id,note FROM transaction_comments")}
+        cats=categories.mapping(self.db.conn)
         previously_selected = self.selected_id()
         self.table.setUpdatesEnabled(False)
         blocker = QSignalBlocker(self.table)
@@ -1079,7 +1408,8 @@ class Window(QMainWindow):
             self.table.setRowCount(len(results))
             for row,r in enumerate(reversed(results)):
                 dt=f"{r.date}{' ~' if r.date_status=='estimated' else ''}"
-                cells=[dt,r.description,display_money(r.mills),display_money(r.running_mills),r.date_status.title()]
+                cells=[dt,r.description,display_money(r.mills),display_money(r.running_mills),r.date_status.title(),
+                       cats.get(r.id,categories.UNCATEGORIZED)]
                 for col,value in enumerate(cells):
                     item=QTableWidgetItem(value)
                     item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
@@ -1090,6 +1420,8 @@ class Window(QMainWindow):
                         item.setForeground(QColor("#99e5be" if r.mills>=0 else "#ffb5b9"))
                     if col==4 and r.date_status=="estimated":
                         item.setForeground(QColor("#e2c58c"))
+                    if col==5 and r.id not in cats:
+                        item.setForeground(QColor("#8095a8"))
                     if col==1 and r.source_cell:
                         item.setToolTip(f"Original: {r.source_period}\nCell: {r.source_cell}\nSource ID: {r.source_uid}")
                     if col == 1:
@@ -1134,6 +1466,9 @@ class Window(QMainWindow):
         self.setStyleSheet(stylesheet(STYLE,mode,self.accent))
         self.canvas.theme_mode=mode
         self.canvas.update()
+        if hasattr(self,"category_chart"):
+            self.category_chart.theme_mode=mode
+            self.category_chart.update()
         # Explicit Qt palette fix for sidebar on Windows (Qt viewport paints separately).
         bg=theme_background(mode)
         for widget in (self.side_scroll.viewport(),self.side_content):
@@ -1204,6 +1539,7 @@ class Window(QMainWindow):
         menu=QMenu(self)
         edit=menu.addAction("Edit transaction")
         note=menu.addAction("Add / edit comment")
+        category=menu.addAction("Set category…")
         similar=menu.addAction("Find matching transactions")
         track=menu.addAction("Track as lending / borrowing")
         repayment=menu.addAction("Link as repayment…")
@@ -1212,6 +1548,7 @@ class Window(QMainWindow):
         picked=menu.exec(self.table.viewport().mapToGlobal(position))
         if picked==edit: self.edit_transaction()
         elif picked==note: self.edit_comment(entry)
+        elif picked==category: self.choose_category(entry)
         elif picked==similar:
             keyword=entry.description.strip().split()[0] if entry.description.strip() else ""
             self.balance_query.setText(keyword)
@@ -1269,6 +1606,7 @@ class Window(QMainWindow):
         enabled=self.selected_id() is not None
         self.edit_button.setEnabled(enabled)
         self.delete_button.setEnabled(enabled)
+        self.category_button.setEnabled(enabled)
 
     def add_transaction(self):
         dialog=TransactionDialog(self, suggestions=self.description_suggestions())
@@ -1300,12 +1638,19 @@ class Window(QMainWindow):
         entry=next((e for e in self.all_entries if e.id==entry_id),None)
         if entry is None:
             return
+        if self.db.loan_linked(entry.id):
+            return message(self,"Tracked in Unbalanced",
+                           f"'{entry.description}' is linked to a loan in Unbalanced.\n\n"
+                           "Unlink the repayment or remove the loan tracking first, then delete it.")
         if confirm(self,"Delete transaction?",
-                   f"Permanently delete '{entry.description}' ({display_money(entry.mills)})?\n\n"
-                   "Later running balances will update automatically."):
+                   f"Delete '{entry.description}' ({display_money(entry.mills)})?\n\n"
+                   "Later running balances will update automatically. You can undo the most recent "
+                   "deletion until you close GlassBalance."):
             try:
-                self.db.delete(entry.id)
+                self.last_deleted=self.db.delete(entry.id)
+                self.undo_button.setEnabled(True)
                 self.refresh()
+                self.statusBar().showMessage(f"Deleted '{entry.description}'. Use Undo deletion to restore it.",8000)
             except Exception as exc:
                 error(self,"Unable to delete",exc)
 
@@ -1385,6 +1730,7 @@ class Window(QMainWindow):
             safety=backup_folder()/f"before-local-restore-{datetime.now().strftime('%Y%m%d-%H%M%S')}.sqlite"
             self.db.backup_to(safety)
             self.db.restore_from(path)
+            self.forget_undo()
             self.refresh()
             message(self,"Ledger restored",f"Restore complete.\n\nSafety backup of your previous ledger:\n{safety}")
         except Exception as exc:
@@ -1393,6 +1739,7 @@ class Window(QMainWindow):
     def email_backup(self):
         dialog=EmailDialog(self,self.db)
         if dialog.exec()==QDialog.DialogCode.Accepted:
+            self.forget_undo()
             self.refresh()
 
     def edit_opening(self):
