@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.3.0-beta.1 (unreleased)
+
+- **In-app updates**: checks the latest *stable* release; shows release notes with Download and install / Later / Skip this version.
+  Downloads with a progress bar and Cancel, verifies size and SHA-256 against the release's `SHA256SUMS.txt`, backs up the ledger, then installs and restarts:
+  Windows installer runs silently (no admin prompt, per-user install); Ubuntu `.deb` asks for your password via the system dialog; macOS opens the disk image for drag-and-drop.
+  Portable and source copies are pointed to the release page instead.
+- Clear messages for offline, timeout, HTTPS/proxy failures, GitHub rate limits and server errors, with Try again. Startup checks stay silent when offline.
+- Fixed: the update check always reported "unavailable" with current PySide6 (`NoError` is truthy), so updates were never detected.
+- Release automation: draft GitHub releases with checksums from tags (pre-releases) and from `main` (stable); version defined once in `glassbalance/__init__.py`.
+- Testers can opt into pre-release updates with the environment variable `GLASSBALANCE_UPDATE_CHANNEL=prerelease`.
+
 ## v0.3.0-alpha.2
 
 - Native Windows installer (Inno Setup) and Ubuntu/Debian `.deb`, alongside portable ZIPs.

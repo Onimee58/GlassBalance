@@ -34,3 +34,5 @@ Name: "{group}\GlassBalance"; Filename: "{app}\GlassBalance.exe"
 Name: "{autodesktop}\GlassBalance"; Filename: "{app}\GlassBalance.exe"; Tasks: desktopicon
 [Run]
 Filename: "{app}\GlassBalance.exe"; Description: "Launch GlassBalance"; Flags: nowait postinstall skipifsilent
+; In-app updates run Setup with /SILENT; relaunch the app afterwards.
+Filename: "{app}\GlassBalance.exe"; Flags: nowait skipifnotsilent

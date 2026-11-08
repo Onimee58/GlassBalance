@@ -12,8 +12,9 @@ from pathlib import Path
 
 from PySide6.QtCore import QDate, QSettings, Qt, QStandardPaths, QTimer, QUrl, QSignalBlocker
 from PySide6.QtGui import QColor, QFont, QIcon, QLinearGradient, QPainter, QPen, QRadialGradient, QPixmap, QDesktopServices, QAction
-from PySide6.QtNetwork import QNetworkAccessManager, QNetworkRequest
-from .update_check import RELEASES_URL, is_newer, latest_stable_release
+from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
+from . import update_check
+from .updater_ui import SKIP_KEY, UpdateDialog, prerelease_channel
 from PySide6.QtWidgets import (
     QApplication, QAbstractItemView, QComboBox, QDateEdit, QDialog,
     QDialogButtonBox, QFileDialog, QFormLayout, QFrame, QGridLayout,
@@ -61,6 +62,9 @@ QPushButton#primary:hover { background-color: #a8f3e3; }
 QPushButton#danger { color: #ffbec4; }
 QPushButton#danger:hover { background-color: rgba(180, 60, 70, 70); }
 QLineEdit, QComboBox, QDateEdit { background-color: rgba(10, 21, 37, 188); color: #edf7ff; border: 1px solid #344a61; border-radius: 10px; padding: 9px 11px; min-height: 20px; selection-background-color: #167e87; }
+QTextBrowser { background-color: rgba(10, 21, 37, 188); color: #edf7ff; border: 1px solid #344a61; border-radius: 10px; padding: 8px; }
+QProgressBar { background-color: rgba(10, 21, 37, 188); color: #edf7ff; border: 1px solid #344a61; border-radius: 8px; min-height: 18px; text-align: center; font-weight: 700; }
+QProgressBar::chunk { background-color: #81e0ce; border-radius: 7px; }
 QLineEdit:focus, QComboBox:focus, QDateEdit:focus { border: 1px solid #79ddd3; }
 QComboBox::drop-down, QDateEdit::drop-down { border: none; width: 22px; }
 QComboBox QAbstractItemView { color: #f3f6fc; background: #1b2a3e; selection-background-color: #2d606b; border: 1px solid #526479; }
@@ -621,7 +625,7 @@ class Window(QMainWindow):
         self.side_about=button("ⓘ    About GlassBalance","nav")
         self.update_notice=button("●    Update available","navActive")
         self.update_notice.setVisible(False)
-        self.update_notice.clicked.connect(self.show_about)
+        self.update_notice.clicked.connect(lambda: self.open_update_dialog(self.latest_release))
         sidebar.addWidget(self.update_notice)
         for control in (self.side_import,self.side_export,self.side_backup,
                         self.side_restore,self.side_email,self.side_opening,self.side_about):
@@ -1053,37 +1057,54 @@ class Window(QMainWindow):
         unbalanced.unlink_repayment(self.db,item.data(Qt.ItemDataRole.UserRole))
         self.render_loans()
 
-    def check_updates(self, on_result=None):
-        """Asynchronously fetch public release metadata only; never send ledger content."""
-        if on_result is not None:
-            self.update_observers.append(on_result)
+    def backup_dir(self) -> Path:
+        return backup_folder()
+
+    def set_update_available(self, release):
+        """Show the sidebar notice for a newer, not-skipped release (None hides it)."""
+        newer = release is not None and update_check.is_newer(release.version, __version__)
+        self.latest_release = release if newer else None
+        if newer:
+            self.update_notice.setText(f"●    Update: {release.version}")
+        self.update_notice.setVisible(newer)
+
+    def open_update_dialog(self, release=None):
+        """Manual check (release=None) or go straight to an already-found release."""
+        UpdateDialog(self, release=release).exec()
+
+    def check_updates(self):
+        """Silent background check at startup. Network problems are ignored here; the
+        friendly error dialog is shown only for checks the user starts."""
         if self.update_inflight:
             return
         self.update_inflight = True
-        request = QNetworkRequest(QUrl(RELEASES_URL))
+        url = update_check.RELEASES_LIST_URL if prerelease_channel() else update_check.RELEASES_URL
+        request = QNetworkRequest(QUrl(url))
         request.setRawHeader(b"Accept", b"application/vnd.github+json")
-        request.setRawHeader(b"User-Agent", b"GlassBalance-update-check")
+        request.setRawHeader(b"User-Agent", f"GlassBalance/{__version__} (update check)".encode())
         request.setTransferTimeout(8000)
         reply = self.update_network.get(request)
 
         def finished():
             self.update_inflight = False
+            reply.deleteLater()
             try:
-                if reply.error():
-                    raise ValueError(reply.errorString())
+                # PySide6 enums are always truthy, even NoError: compare explicitly.
+                if reply.error() != QNetworkReply.NetworkError.NoError:
+                    return
                 payload = json.loads(bytes(reply.readAll()).decode("utf-8"))
-                release = latest_stable_release(payload)
-                available = is_newer(release["version"], __version__)
-                self.latest_release = release if available else None
-                self.update_notice.setVisible(available)
-                result = (release, None)
-            except (ValueError, UnicodeDecodeError, json.JSONDecodeError, TypeError) as exc:
-                result = (None, str(exc))
-            finally:
-                reply.deleteLater()
-            callbacks, self.update_observers = self.update_observers, []
-            for callback in callbacks:
-                callback(*result)
+                if isinstance(payload, list):
+                    release = update_check.newest_release(payload, allow_prerelease=prerelease_channel())
+                else:
+                    release = update_check.parse_release(payload, allow_prerelease=prerelease_channel())
+            except (ValueError, UnicodeDecodeError, TypeError):
+                return
+            if not update_check.is_newer(release.version, __version__):
+                return
+            if str(self.update_settings.value(SKIP_KEY, "")) == release.version:
+                return
+            self.set_update_available(release)
+            QTimer.singleShot(0, lambda: self.open_update_dialog(release))
 
         reply.finished.connect(finished)
 
@@ -1144,13 +1165,9 @@ class Window(QMainWindow):
         link.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(link)
         layout.addWidget(label("Back up your ledger before upgrading.","muted",True))
-        update_result=label("Latest stable: not checked", "muted", True)
-        layout.addWidget(update_result)
-        update_btn=button("Check for updates")
+        update_btn=button("Check for updates…")
+        update_btn.clicked.connect(lambda: self.open_update_dialog(None))
         layout.addWidget(update_btn)
-        open_release=button("View release on GitHub")
-        open_release.setVisible(False)
-        layout.addWidget(open_release)
         startup_check=button("Startup checks: On" if self.update_settings.value("updates/check_at_startup",True,type=bool) else "Startup checks: Off")
         layout.addWidget(startup_check)
         def toggle_check():
@@ -1158,23 +1175,6 @@ class Window(QMainWindow):
             self.update_settings.setValue("updates/check_at_startup",enabled)
             startup_check.setText("Startup checks: On" if enabled else "Startup checks: Off")
         startup_check.clicked.connect(toggle_check)
-        def show_update_result(release, failure):
-            if not dlg.isVisible():
-                return
-            update_btn.setEnabled(True)
-            if failure:
-                update_result.setText("Update check unavailable (offline or GitHub unreachable).")
-                open_release.setVisible(False)
-            else:
-                update_result.setText(f"Installed: v{__version__}\nLatest stable: {release['version']}\n" + ("Update available" if is_newer(release['version'],__version__) else "You're up to date"))
-                open_release.setVisible(is_newer(release['version'],__version__))
-                open_release.setProperty("release_url",release['url'])
-        def manual_check():
-            update_btn.setEnabled(False)
-            update_result.setText("Checking GitHub Releases…")
-            self.check_updates(show_update_result)
-        update_btn.clicked.connect(manual_check)
-        open_release.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(open_release.property("release_url"))))
         close=button("Close")
         close.clicked.connect(dlg.accept)
         layout.addWidget(close)
