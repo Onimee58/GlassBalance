@@ -5,11 +5,12 @@ The UI (updater_ui.py) does the networking; everything decided here is unit-test
 from __future__ import annotations
 
 import hashlib
+import os
 import platform as _platform
 import re
 import sys
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 REPO = "Onimee58/GlassBalance"
 RELEASES_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
@@ -133,7 +134,7 @@ LINUX_DEB = "deb"
 LINUX_PORTABLE = "linux-portable"
 MACOS_APP = "macos-app"
 SOURCE = "source"
-DEB_PREFIX = Path("/opt/glassbalance")
+DEB_PREFIX = PurePosixPath("/opt/glassbalance")
 
 
 def install_kind(executable: str | None = None, system: str | None = None, frozen: bool | None = None) -> str:
@@ -148,11 +149,15 @@ def install_kind(executable: str | None = None, system: str | None = None, froze
         return WINDOWS_INSTALLER if any(exe.parent.glob("unins*.exe")) else WINDOWS_PORTABLE
     if system == "darwin":
         return MACOS_APP if ".app/Contents/MacOS" in exe.as_posix() else SOURCE
-    try:
-        resolved = exe.resolve()
-    except OSError:
-        resolved = exe
-    return LINUX_DEB if DEB_PREFIX in resolved.parents else LINUX_PORTABLE
+    # Linux paths are compared as POSIX paths so this also evaluates correctly when the
+    # test suite runs on Windows (where Path("/opt/...") would become "D:\\opt\\...").
+    if os.name == "posix":
+        try:
+            executable = os.path.realpath(executable)   # /usr/bin/glassbalance -> /opt/glassbalance/...
+        except OSError:
+            pass
+    posix = PurePosixPath(executable.replace("\\", "/"))
+    return LINUX_DEB if DEB_PREFIX in posix.parents else LINUX_PORTABLE
 
 
 _ASSET_PATTERNS = {
