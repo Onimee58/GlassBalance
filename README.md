@@ -1,5 +1,7 @@
 <div align="center">
 
+ <img src="glassbalance/assets/glassbalance_icon.png" alt="GlassBalance logo" width="96">
+
 # GlassBalance
 
 ### Your money, your records, your computer.
