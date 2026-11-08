@@ -28,7 +28,7 @@ from .database import Entry, Ledger
 from .email_backup import decrypt_snapshot, download_latest_backup, send_backup
 from .importer import load_import
 from .money import as_mills, display_money, mills_as_decimal
-from . import unbalanced, categories, recurring
+from . import unbalanced, categories, recurring, periods
 from .themes import stylesheet, effective_theme, theme_background
 
 
@@ -622,13 +622,8 @@ class Window(QMainWindow):
         self.side_restore=button("↶    Restore backup","nav")
         self.side_email=button("✉    Encrypted email","nav")
         self.side_opening=button("◉    Opening balance","nav")
-        self.side_about=button("ⓘ    About GlassBalance","nav")
-        self.update_notice=button("●    Update available","navActive")
-        self.update_notice.setVisible(False)
-        self.update_notice.clicked.connect(lambda: self.open_update_dialog(self.latest_release))
-        sidebar.addWidget(self.update_notice)
         for control in (self.side_import,self.side_export,self.side_backup,
-                        self.side_restore,self.side_email,self.side_opening,self.side_about):
+                        self.side_restore,self.side_email,self.side_opening):
             sidebar.addWidget(control)
         self.side_appearance=button("◐    Appearance", "nav")
         self.side_appearance.clicked.connect(self.appearance_dialog)
@@ -653,8 +648,17 @@ class Window(QMainWindow):
         header_text.addWidget(label("Money, made clearer.","title"))
         header_text.addWidget(label("A complete picture of every transaction.","muted"))
         header.addLayout(header_text,1)
+        self.update_notice=button("●  Update available","navActive")
+        self.update_notice.setVisible(False)
+        self.update_notice.setToolTip("A newer GlassBalance release is available")
+        self.update_notice.clicked.connect(lambda: self.open_update_dialog(self.latest_release))
+        header.addWidget(self.update_notice,alignment=Qt.AlignmentFlag.AlignVCenter)
         self.side_new=button("＋  New transaction","primary")
         header.addWidget(self.side_new,alignment=Qt.AlignmentFlag.AlignVCenter)
+        self.side_about=button("ⓘ  About")
+        self.side_about.setToolTip("About GlassBalance, updates and appearance")
+        self.side_about.clicked.connect(self.show_about)
+        header.addWidget(self.side_about,alignment=Qt.AlignmentFlag.AlignVCenter)
         content.addLayout(header)
 
         summary_row=QHBoxLayout()
@@ -671,24 +675,49 @@ class Window(QMainWindow):
         self.trend=BalanceChart()
         hero_layout.addWidget(self.trend,1)
         summary_row.addWidget(hero,3)
+        period_card=panel("stat")
+        pl=QVBoxLayout(period_card)
+        pl.setContentsMargins(17,13,15,12)
+        pl.setSpacing(6)
+        top=QHBoxLayout()
+        top.addWidget(label("MONEY IN  ·  OUT  ·  NET","statTitle"),1)
+        self.period_choice=QComboBox()
+        self.period_choice.addItems(list(periods.PRESETS))
+        self.period_choice.setToolTip("Date range for these totals and the Categories & charts tab")
+        top.addWidget(self.period_choice)
+        pl.addLayout(top)
+        self.period_custom=QWidget()
+        cr=QHBoxLayout(self.period_custom)
+        cr.setContentsMargins(0,0,0,0)
+        cr.setSpacing(6)
+        self.period_from=QDateEdit()
+        self.period_to=QDateEdit()
+        for edit in (self.period_from,self.period_to):
+            edit.setCalendarPopup(True)
+            edit.setDisplayFormat("MMM d, yyyy")
+        self.period_from.setDate(QDate.currentDate().addMonths(-1))
+        self.period_to.setDate(QDate.currentDate())
+        cr.addWidget(self.period_from,1)
+        cr.addWidget(label("to","muted"))
+        cr.addWidget(self.period_to,1)
+        pl.addWidget(self.period_custom)
+        grid=QGridLayout()
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(2)
+        self.period_in=label("$0.00","valueIn")
+        self.period_out=label("$0.00","valueOut")
+        self.period_net=label("$0.00","valueIn")
+        for row,(name,value) in enumerate((("Money in",self.period_in),("Money out",self.period_out),("Net",self.period_net))):
+            grid.addWidget(label(name,"muted"),row,0,Qt.AlignmentFlag.AlignVCenter)
+            value.setAlignment(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignVCenter)
+            grid.addWidget(value,row,1)
+        grid.setColumnStretch(1,1)
+        pl.addLayout(grid)
+        self.period_caption=label("","muted")
+        pl.addWidget(self.period_caption)
+        pl.addStretch()
         mini=QVBoxLayout()
-        mini.setSpacing(12)
-        income=panel("stat")
-        i_layout=QVBoxLayout(income)
-        i_layout.setContentsMargins(17,15,15,14)
-        i_layout.addWidget(label("INCOME  ·  THIS MONTH","statTitle"))
-        self.income_value=label("$0.00","valueIn")
-        i_layout.addWidget(self.income_value)
-        i_layout.addWidget(label("Positive transactions","muted"))
-        mini.addWidget(income)
-        expense=panel("stat")
-        e_layout=QVBoxLayout(expense)
-        e_layout.setContentsMargins(17,15,15,14)
-        e_layout.addWidget(label("EXPENSES  ·  THIS MONTH","statTitle"))
-        self.expense_value=label("$0.00","valueOut")
-        e_layout.addWidget(self.expense_value)
-        e_layout.addWidget(label("Negative transactions","muted"))
-        mini.addWidget(expense)
+        mini.addWidget(period_card)
         summary_row.addLayout(mini,2)
         content.addLayout(summary_row)
 
@@ -801,7 +830,7 @@ class Window(QMainWindow):
 
         self.categories_tab=QWidget()
         ct=QVBoxLayout(self.categories_tab)
-        ct.addWidget(label("Spending and income by category across all transactions. Categories never change your balance.","muted",True))
+        ct.addWidget(label("Spending and income by category for the date range chosen on the Money in · out · net card. Categories never change your balance.","muted",True))
         self.cat_totals=label("","muted",True)
         ct.addWidget(self.cat_totals)
         self.category_chart=CategoryChart()
@@ -872,13 +901,18 @@ class Window(QMainWindow):
         self.side_restore.clicked.connect(self.restore_backup)
         self.side_email.clicked.connect(self.email_backup)
         self.side_opening.clicked.connect(self.edit_opening)
-        self.side_about.clicked.connect(self.show_about)
         self.nav_overview.clicked.connect(lambda:self.navigate(0))
         self.nav_activity.clicked.connect(lambda:self.navigate(0))
         self.nav_monthly.clicked.connect(lambda:self.navigate(1))
         self.nav_balance_search.clicked.connect(lambda:self.navigate(2))
         self.nav_unbalanced.clicked.connect(lambda:self.navigate(3))
         self.nav_categories.clicked.connect(lambda:self.navigate(4))
+        saved=str(self.update_settings.value("overview/period","This month"))
+        self.period_choice.setCurrentText(saved if saved in periods.PRESETS else "This month")
+        self.period_custom.setVisible(self.period_choice.currentText()=="Custom range")
+        self.period_choice.currentTextChanged.connect(self.period_preset_changed)
+        self.period_from.dateChanged.connect(self.render_period)
+        self.period_to.dateChanged.connect(self.render_period)
         self.nav_recurring.clicked.connect(lambda:self.navigate(5))
         self.undo_button.clicked.connect(self.undo_deletion)
         self.category_button.clicked.connect(self.set_selected_category)
@@ -1210,11 +1244,7 @@ class Window(QMainWindow):
         self.refresh_completers()
         self.balance_value.setText(display_money(self.db.balance()))
         self.trend.set_entries(self.all_entries)
-        month=date.today().strftime("%Y-%m")
-        in_month=sum(max(r.mills,0) for r in self.all_entries if r.date.startswith(month))
-        out_month=sum(max(-r.mills,0) for r in self.all_entries if r.date.startswith(month))
-        self.income_value.setText(display_money(in_month))
-        self.expense_value.setText(display_money(out_month))
+        self.render_period(categories_too=False)
         self.render_transactions()
         self.render_monthly()
         self.render_balance_search()
@@ -1222,13 +1252,52 @@ class Window(QMainWindow):
         self.render_categories()
         self.render_recurring()
 
+    TONES = {"dark": {"in": "#99e5be", "out": "#ffb5b9", "estimated": "#e2c58c", "muted": "#8095a8"},
+             "light": {"in": "#17634b", "out": "#a93441", "estimated": "#8a5a00", "muted": "#61778a"}}
+
+    def tone(self, kind: str) -> QColor:
+        """Table text colors that stay legible in both light and dark appearance."""
+        mode = getattr(self.canvas, "theme_mode", "dark")
+        return QColor(self.TONES.get(mode, self.TONES["dark"])[kind])
+
+    def selected_period(self):
+        name=self.period_choice.currentText()
+        if name=="Custom range":
+            start=self.period_from.date().toPython()
+            end=self.period_to.date().toPython()
+            return periods.normalize(start,end)
+        return periods.preset_range(name)
+
+    def period_preset_changed(self, name):
+        self.period_custom.setVisible(name=="Custom range")
+        self.update_settings.setValue("overview/period",name)
+        self.render_period()
+
+    def render_period(self, *_args, categories_too=True):
+        if not hasattr(self,"all_entries"):
+            return
+        start,end=self.selected_period()
+        t=periods.totals(self.all_entries,start,end)
+        self.period_in.setText(display_money(t["in"]))
+        self.period_out.setText(display_money(-t["out"]))
+        self.period_net.setText(display_money(t["net"]))
+        self.period_net.setObjectName("valueIn" if t["net"]>=0 else "valueOut")
+        self.period_net.style().unpolish(self.period_net)
+        self.period_net.style().polish(self.period_net)
+        noun="transaction" if t["count"]==1 else "transactions"
+        self.period_caption.setText(f"{periods.describe(start,end)}  ·  {t['count']:,} {noun}")
+        if categories_too:
+            self.render_categories()
+
     def render_categories(self):
-        rows=categories.summary(self.db.conn)
+        start,end=self.selected_period()
+        rows=categories.summary(self.db.conn,start,end)
         self.category_chart.set_rows(rows)
         income=sum(r["income"] for r in rows)
         expense=sum(r["expense"] for r in rows)
-        self.cat_totals.setText(f"All transactions · Income {display_money(income)} · Expenses {display_money(-expense)} · "
-                                f"Net {display_money(income-expense)} · {sum(r['count'] for r in rows):,} transactions")
+        self.cat_totals.setText(f"{periods.describe(start,end)} · Income {display_money(income)} · Expenses {display_money(-expense)} · "
+                                f"Net {display_money(income-expense)} · {sum(r['count'] for r in rows):,} transactions "
+                                "(range set on the Overview card)")
         self.cat_table.setUpdatesEnabled(False)
         blocker=QSignalBlocker(self.cat_table)
         try:
@@ -1262,7 +1331,7 @@ class Window(QMainWindow):
                     if col in (1,2):
                         cell.setTextAlignment(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignVCenter)
                     if col==1:
-                        cell.setForeground(QColor("#99e5be" if t.mills>=0 else "#ffb5b9"))
+                        cell.setForeground(self.tone("in" if t.mills>=0 else "out"))
                     self.rec_table.setItem(i,col,cell)
                 if t.id==selected:
                     self.rec_table.selectRow(i)
@@ -1417,11 +1486,11 @@ class Window(QMainWindow):
                     if col in (2,3):
                         item.setTextAlignment(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignVCenter)
                     if col==2:
-                        item.setForeground(QColor("#99e5be" if r.mills>=0 else "#ffb5b9"))
+                        item.setForeground(self.tone("in" if r.mills>=0 else "out"))
                     if col==4 and r.date_status=="estimated":
-                        item.setForeground(QColor("#e2c58c"))
+                        item.setForeground(self.tone("estimated"))
                     if col==5 and r.id not in cats:
-                        item.setForeground(QColor("#8095a8"))
+                        item.setForeground(self.tone("muted"))
                     if col==1 and r.source_cell:
                         item.setToolTip(f"Original: {r.source_period}\nCell: {r.source_cell}\nSource ID: {r.source_uid}")
                     if col == 1:
@@ -1453,9 +1522,9 @@ class Window(QMainWindow):
                     if col:
                         cell.setTextAlignment(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignVCenter)
                     if col==1:
-                        cell.setForeground(QColor("#99e5be"))
+                        cell.setForeground(self.tone("in"))
                     if col==2:
-                        cell.setForeground(QColor("#ffb5b9"))
+                        cell.setForeground(self.tone("out"))
                     self.monthly.setItem(row,col,cell)
         finally:
             del blocker
@@ -1469,6 +1538,11 @@ class Window(QMainWindow):
         if hasattr(self,"category_chart"):
             self.category_chart.theme_mode=mode
             self.category_chart.update()
+        if hasattr(self,"all_entries"):
+            # Re-color amounts for the new appearance.
+            self.render_transactions()
+            self.render_monthly()
+            self.render_recurring()
         # Explicit Qt palette fix for sidebar on Windows (Qt viewport paints separately).
         bg=theme_background(mode)
         for widget in (self.side_scroll.viewport(),self.side_content):

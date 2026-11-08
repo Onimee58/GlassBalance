@@ -2,6 +2,9 @@
 
 ## v0.3.0-beta.1 (unreleased)
 
+- **Money in · out · net** card on the Overview with a date range: This month, Last month, Last 3 months, This year, Last year, All time or a custom range (remembered between sessions). The Categories & charts tab follows the same range.
+- **About** moved to the top-right of the window, next to New transaction; the update notice appears there too.
+- Fixed: green/red amounts in tables were hard to read in Light mode; table colors now follow the appearance.
 - **In-app updates**: checks the latest *stable* release; shows release notes with Download and install / Later / Skip this version.
   Downloads with a progress bar and Cancel, verifies size and SHA-256 against the release's `SHA256SUMS.txt`, backs up the ledger, then installs and restarts:
   Windows installer runs silently (no admin prompt, per-user install); Ubuntu `.deb` asks for your password via the system dialog; macOS opens the disk image for drag-and-drop.

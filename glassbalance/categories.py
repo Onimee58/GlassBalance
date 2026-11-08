@@ -58,19 +58,23 @@ def names(conn) -> list[str]:
         'SELECT DISTINCT category FROM transaction_categories ORDER BY category COLLATE NOCASE')]
 
 
-def summary(conn) -> list[dict]:
+def summary(conn, start=None, end=None) -> list[dict]:
     """Income/expense per category across ALL transactions, Uncategorized included.
 
     Totals always reconcile with the ledger: sum(income)-sum(expense) equals the
-    sum of all transaction amounts (opening balance excluded).
+    sum of all transaction amounts (opening balance excluded). Optional inclusive
+    start/end dates (date objects or ISO strings) limit the transactions counted.
     """
+    lo = start.isoformat() if hasattr(start, "isoformat") else start
+    hi = end.isoformat() if hasattr(end, "isoformat") else end
     rows = conn.execute('''
         SELECT COALESCE(c.category, ?) AS category,
                SUM(CASE WHEN t.amount_mills>0 THEN t.amount_mills ELSE 0 END) AS income,
                SUM(CASE WHEN t.amount_mills<0 THEN -t.amount_mills ELSE 0 END) AS expense,
                COUNT(*) AS count
         FROM transactions t LEFT JOIN transaction_categories c ON c.transaction_id=t.id
+        WHERE (? IS NULL OR t.tx_date >= ?) AND (? IS NULL OR t.tx_date <= ?)
         GROUP BY COALESCE(c.category, ?)
         ORDER BY expense DESC, income DESC, category COLLATE NOCASE
-    ''', (UNCATEGORIZED, UNCATEGORIZED)).fetchall()
+    ''', (UNCATEGORIZED, lo, lo, hi, hi, UNCATEGORIZED)).fetchall()
     return [{"category": str(r[0]), "income": int(r[1]), "expense": int(r[2]), "count": int(r[3])} for r in rows]
