@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.3.0-beta.1 (unreleased)
+## v0.3.0-beta.1
 
 - **Money in · out · net** card on the Overview with a date range: This month, Last month, Last 3 months, This year, Last year, All time or a custom range (remembered between sessions). The Categories & charts tab follows the same range.
 - **About** moved to the top-right of the window, next to New transaction; the update notice appears there too.
