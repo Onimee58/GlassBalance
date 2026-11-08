@@ -1,5 +1,8 @@
 ; Inno Setup 6 script: run ISCC after PyInstaller creates dist\GlassBalance\.
-#define AppVersion "0.3.0-alpha.2"
+; CI passes /DAppVersion=<glassbalance.__version__>; the fallback is for local builds only.
+#ifndef AppVersion
+  #define AppVersion "0.3.0-alpha.2"
+#endif
 [Setup]
 AppId={{B58CE8F3-85B9-4B7B-BF3F-9139B17BB057}
 AppName=GlassBalance

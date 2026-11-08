@@ -9,7 +9,11 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-VERSION = "0.3.0~alpha2"
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from release_info import deb_version, version  # noqa: E402
+
+VERSION = deb_version(version())
 PACKAGE = f"glassbalance_{VERSION}_amd64.deb"
 
 
@@ -48,8 +52,8 @@ StartupWMClass=GlassBalance
     shutil.copy2(ROOT / "glassbalance" / "assets" / "glassbalance_icon.png", icon)
     control = staging / "DEBIAN" / "control"
     control.parent.mkdir(parents=True, exist_ok=True)
-    control.write_text("""Package: glassbalance
-Version: 0.3.0~alpha2
+    control.write_text(f"""Package: glassbalance
+Version: {VERSION}
 Section: utils
 Priority: optional
 Architecture: amd64

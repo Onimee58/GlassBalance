@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.3.0-alpha.2 (in testing)
+## v0.3.0-alpha.2
 
 - Native Windows installer (Inno Setup) and Ubuntu/Debian `.deb`, alongside portable ZIPs.
 - **Transaction categories**: set from the bottom bar or right-click; stored in SQLite; never change balances. Searchable from the Transactions filter. Included in CSV/XLSX export and re-import.

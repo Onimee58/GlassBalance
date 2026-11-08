@@ -42,7 +42,8 @@ jobs:
         shell: pwsh
         run: |
           choco install innosetup --yes --no-progress
-          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' 'packaging\windows\GlassBalance.iss'
+          $version = python scripts/release_info.py version
+          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' "/DAppVersion=$version" 'packaging\windows\GlassBalance.iss'
       - name: Build Ubuntu Debian package
         if: runner.os == 'Linux'
         run: python scripts/build_deb.py
@@ -95,3 +96,85 @@ jobs:
           name: GlassBalance-macOS-DMG-experimental
           path: GlassBalance-*-macOS-*.dmg
           if-no-files-found: error
+
+  release:
+    # Runs after the builds. Creates a GitHub release when:
+    #   - a tag vX.Y.Z or vX.Y.Z-beta.N is pushed (tag must equal glassbalance.__version__), or
+    #   - main is pushed and the tag for its (stable) version does not exist yet.
+    # Releases are created as DRAFTS by default so a human checks them before publishing.
+    # Set repository variable RELEASE_DRAFT=false to publish immediately.
+    name: GitHub release
+    needs: [bundle, macos]
+    if: always() && needs.bundle.result == 'success' && (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+      - name: Decide whether to release
+        id: info
+        run: |
+          VERSION="$(python3 scripts/release_info.py version)"
+          TAG="v$VERSION"
+          PRE="$(python3 scripts/release_info.py prerelease)"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$PRE" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            if [[ "$GITHUB_REF_NAME" != "$TAG" ]]; then
+              echo "::error::Tag $GITHUB_REF_NAME does not match glassbalance.__version__ ($VERSION). Fix the version or the tag."
+              exit 1
+            fi
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          elif git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "::notice::$TAG already exists; nothing to release for this push to main."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          elif [[ "$PRE" == "true" ]]; then
+            echo "::warning::main holds prerelease version $VERSION. Prereleases are released by pushing a tag, not by merging to main."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Download build artifacts
+        if: steps.info.outputs.skip == 'false'
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Name assets and write checksums
+        if: steps.info.outputs.skip == 'false'
+        run: |
+          V="${{ steps.info.outputs.version }}"
+          mkdir release-assets
+          mv artifacts/GlassBalance-Windows.zip "release-assets/GlassBalance-v$V-Windows-x64-Portable.zip"
+          mv artifacts/GlassBalance-Linux.zip   "release-assets/GlassBalance-v$V-Linux-x64-Portable.zip"
+          mv artifacts/GlassBalance-Setup-*.exe release-assets/
+          # GitHub rewrites '~' in asset names; dpkg reads the version from the package itself.
+          mv artifacts/glassbalance_*_amd64.deb "release-assets/glassbalance_${V}_amd64.deb"
+          if compgen -G "artifacts/GlassBalance-*-macOS-*.dmg" > /dev/null; then
+            mv artifacts/GlassBalance-*-macOS-*.dmg release-assets/
+          else
+            echo "::warning::macOS build missing; releasing without a .dmg."
+            echo "NO_MAC=1" >> "$GITHUB_ENV"
+          fi
+          (cd release-assets && sha256sum * > SHA256SUMS.txt)
+          ls -l release-assets
+          python3 scripts/release_info.py notes release-notes.md
+          if [[ -n "${NO_MAC:-}" ]]; then printf '\n> The experimental macOS build failed for this release.\n' >> release-notes.md; fi
+          if compgen -G "release-assets/*.dmg" > /dev/null; then
+            printf '\n### macOS (experimental)\nApple Silicon only. Not notarized: on first launch, open System Settings → Privacy & Security and choose **Open Anyway**.\n' >> release-notes.md
+          fi
+      - name: Create GitHub release
+        if: steps.info.outputs.skip == 'false'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.info.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: GlassBalance ${{ steps.info.outputs.tag }}
+          body_path: release-notes.md
+          prerelease: ${{ steps.info.outputs.prerelease == 'true' }}
+          make_latest: ${{ steps.info.outputs.prerelease == 'true' && 'false' || 'true' }}
+          draft: ${{ vars.RELEASE_DRAFT != 'false' }}
+          files: release-assets/*
+          fail_on_unmatched_files: true
