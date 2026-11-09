@@ -1155,35 +1155,16 @@ class Window(QMainWindow):
         avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
         asset_root=Path(getattr(sys,"_MEIPASS",Path(__file__).resolve().parent.parent))
         bundled=asset_root/"glassbalance"/"assets"/"onimee58_avatar.png"
-        custom=data_folder()/"maintainer_avatar.png"
-
-        def display_avatar():
-            for path in (custom,bundled):
-                if path.is_file():
-                    pix=QPixmap(str(path))
-                    if not pix.isNull():
-                        avatar.setPixmap(pix.scaled(96,96,Qt.AspectRatioMode.KeepAspectRatio,Qt.TransformationMode.SmoothTransformation))
-                        return
+        pix=QPixmap(str(bundled))
+        if pix.isNull():
             avatar.setText("◈")
             avatar.setStyleSheet("font-size: 38px; color: #81e0ce;")
-
-        def choose_avatar():
-            path,_=QFileDialog.getOpenFileName(dlg,"Choose your GitHub profile picture",str(Path.home()),"Images (*.png *.jpg *.jpeg *.webp)")
-            if not path:
-                return
-            pix=QPixmap(path)
-            if pix.isNull():
-                return message(dlg,"Invalid picture","Please select a valid PNG, JPEG, or WebP image.")
-            image=pix.scaled(128,128,Qt.AspectRatioMode.KeepAspectRatio,Qt.TransformationMode.SmoothTransformation)
-            if not image.save(str(custom),"PNG"):
-                return message(dlg,"Picture not saved","Could not save your profile image.")
-            display_avatar()
-
-        display_avatar()
+        else:
+            ratio=self.devicePixelRatioF()
+            scaled=pix.scaled(int(96*ratio),int(96*ratio),Qt.AspectRatioMode.KeepAspectRatio,Qt.TransformationMode.SmoothTransformation)
+            scaled.setDevicePixelRatio(ratio)
+            avatar.setPixmap(scaled)
         layout.addWidget(avatar)
-        photo_button=button("Change profile picture (local)")
-        photo_button.clicked.connect(choose_avatar)
-        layout.addWidget(photo_button)
         logo=QLabel()
         logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         logo.setPixmap(app_icon().pixmap(54,54))
@@ -1738,6 +1719,7 @@ class Window(QMainWindow):
             try:
                 data=load_import(path)
                 duplicates=self.db.duplicates_in(data)
+                category_changes=self.db.category_changes(data)
             finally:
                 QApplication.restoreOverrideCursor()
             if not data.transactions:
@@ -1750,13 +1732,21 @@ class Window(QMainWindow):
                      f"New transactions: {len(data.transactions)-duplicates:,}\n"
                      f"Opening balance: {opening}\n"
                      f"Date range: {min(dts)} to {max(dts)}\n"
-                     f"Estimated dates: {sum(x.date_status=='estimated' for x in data.transactions):,}\n\n"
+                     f"Estimated dates: {sum(x.date_status=='estimated' for x in data.transactions):,}\n"
+                     f"Category updates for existing transactions: {len(category_changes):,}\n\n"
                      f"{data.note}\n\n"
                      "Continue? Your original file will not be modified.")
             if confirm(self,"Review import",summary):
+                balance_before=self.db.balance() if not (len(data.transactions)-duplicates) else None
                 inserted,skipped=self.db.import_data(data)
+                updated=self.db.apply_category_changes(category_changes)
                 self.refresh()
-                message(self,"Import complete",f"Added {inserted:,} transactions.\nSkipped {skipped:,} already-imported transactions.\n\nBalance: {display_money(self.db.balance())}")
+                note=""
+                if balance_before is not None and self.db.balance()!=balance_before:
+                    note="\n\nWarning: the balance changed unexpectedly. Restore your backup."
+                message(self,"Import complete",f"Added {inserted:,} transactions.\nSkipped {skipped:,} already-imported transactions.\n"
+                        f"Updated categories on {updated:,} existing transactions (amounts unchanged).\n\n"
+                        f"Balance: {display_money(self.db.balance())}{note}")
         except Exception as exc:
             error(self,"Import failed",exc)
 

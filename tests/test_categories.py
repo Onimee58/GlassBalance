@@ -65,3 +65,32 @@ class CategoryTests(unittest.TestCase):
 
 
 if __name__=='__main__': unittest.main()
+
+
+class CategoryReimportTests(unittest.TestCase):
+    """Export → add categories in a spreadsheet → import back into the SAME ledger."""
+    def test_reimport_updates_categories_without_touching_money(self):
+        import csv
+        db=Ledger()
+        db.set_opening(100000,'2026-09-30')
+        a=db.add('2026-10-01','Walmart',-45900)
+        b=db.add('2026-10-02','Salary',2500000)
+        c=db.add('2026-10-03','Rent',-900000)
+        db.set_category(c,'Housing')
+        before=(db.balance(),[(e.id,e.date,e.mills,e.running_mills) for e in db.entries()])
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d)/'export.csv'
+            db.export_csv(path)
+            rows=list(csv.DictReader(open(path,encoding='utf-8-sig')))
+            for r in rows:
+                r['Category']={'Walmart':'groceries','Salary':'Income','Rent':''}.get(r['Description'],r['Category'])
+            with open(path,'w',newline='',encoding='utf-8-sig') as f:
+                w=csv.DictWriter(f,fieldnames=list(rows[0])); w.writeheader(); w.writerows(rows)
+            data=load_import(path)
+            changes=db.category_changes(data)
+            self.assertEqual(sorted((i,n) for i,_o,n in changes),[(a,'groceries'),(b,'Income')])
+            self.assertEqual(db.import_data(data),(0,3))
+            self.assertEqual(db.apply_category_changes(changes),2)
+        self.assertEqual((db.category(a),db.category(b),db.category(c)),('groceries','Income','Housing'))
+        self.assertEqual((db.balance(),[(e.id,e.date,e.mills,e.running_mills) for e in db.entries()]),before)
+        db.close()

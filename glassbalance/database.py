@@ -290,6 +290,40 @@ class Ledger:
                 inserted+=1
         return inserted,skipped
 
+    def category_changes(self, data) -> list[tuple[int, str, str]]:
+        """Categories in an import file for transactions that ALREADY exist (matched by
+        Stable import ID) and differ from the ledger. Returns (id, old, new).
+
+        A blank or 'Uncategorized' cell never clears an existing category.
+        """
+        ids={r[0]:int(r[1]) for r in self.conn.execute("SELECT source_uid,id FROM transactions")}
+        current=categories.mapping(self.conn)
+        changes=[]
+        for tx in data.transactions:
+            new=categories.clean(getattr(tx,"category",""))
+            tx_id=ids.get(tx.source_uid)
+            if not new or tx_id is None:
+                continue
+            old=current.get(tx_id,"")
+            if old.casefold()!=new.casefold():
+                changes.append((tx_id,old,new))
+        return changes
+
+    def apply_category_changes(self, changes) -> int:
+        """Apply category_changes() atomically. Never touches amounts, dates or balances."""
+        names={}
+        with self.conn:
+            for tx_id,_old,new in changes:
+                # Reuse the first spelling seen in this batch or the ledger, so 'food'/'Food' merge.
+                key=new.casefold()
+                if key not in names:
+                    row=self.conn.execute("SELECT category FROM transaction_categories WHERE category=? COLLATE NOCASE LIMIT 1",
+                                          (new,)).fetchone()
+                    names[key]=str(row[0]) if row else new
+                self.conn.execute("""INSERT INTO transaction_categories(transaction_id,category) VALUES(?,?)
+                    ON CONFLICT(transaction_id) DO UPDATE SET category=excluded.category""",(tx_id,names[key]))
+        return len(changes)
+
     def duplicates_in(self, data) -> int:
         existing={r[0] for r in self.conn.execute("SELECT source_uid FROM transactions")}
         return sum(1 for tx in data.transactions if tx.source_uid in existing)

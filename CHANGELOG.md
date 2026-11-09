@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.3.0-beta.2 (unreleased)
+
+- About shows the maintainer photo bundled in the app; the local picture picker and the build-time avatar download were removed (installers are ~1.8 MB smaller).
+- Importing a file whose transactions already exist now **updates their categories** (matched by Stable import ID) after showing the count. Amounts, dates and balances are never changed; blank categories never erase existing ones.
+
 ## v0.3.0-beta.1
 
 - **Money in · out · net** card on the Overview with a date range: This month, Last month, Last 3 months, This year, Last year, All time or a custom range (remembered between sessions). The Categories & charts tab follows the same range.

@@ -31,8 +31,6 @@ jobs:
           python -m pip install -r requirements-dev.txt
       - name: Run core tests
         run: python -m unittest discover -s tests -v
-      - name: Bundle lightweight maintainer avatar (optional)
-        run: python scripts/fetch_avatar.py
       - name: Build native desktop bundle
         run: python scripts/build_bundle.py
       - name: Package portable bundle
@@ -86,8 +84,6 @@ jobs:
           python -m pip install -r requirements-dev.txt
       - name: Run core tests
         run: python -m unittest discover -s tests -v
-      - name: Bundle lightweight maintainer avatar (optional)
-        run: python scripts/fetch_avatar.py
       - name: Build .app and .dmg
         run: bash scripts/build_macos.sh
       - name: Publish macOS disk image
