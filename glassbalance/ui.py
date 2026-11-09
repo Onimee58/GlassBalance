@@ -516,6 +516,15 @@ class RecurringDialog(QDialog):
         self.accept()
 
 
+_MONTHS=("jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec")
+
+
+def export_basename(day: date | None = None) -> str:
+    """Default export name, e.g. glassbalance-export_8nov2026 (locale-independent)."""
+    day=day or date.today()
+    return f"glassbalance-export_{day.day}{_MONTHS[day.month-1]}{day.year}"
+
+
 def data_folder() -> Path:
     root=QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)
     if not root:
@@ -1752,7 +1761,7 @@ class Window(QMainWindow):
 
     def export_file(self):
         path,flt=QFileDialog.getSaveFileName(self,"Export complete ledger",
-            str(Path.home()/"glassbalance-export.xlsx"),
+            str(Path.home()/f"{export_basename()}.xlsx"),
             "Excel workbook (*.xlsx);;CSV file (*.csv)")
         if not path:
             return

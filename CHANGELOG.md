@@ -2,6 +2,7 @@
 
 ## v0.3.0-beta.2 (unreleased)
 
+- Exports default to a dated name, e.g. `glassbalance-export_8nov2026.xlsx`.
 - About shows the maintainer photo bundled in the app; the local picture picker and the build-time avatar download were removed (installers are ~1.8 MB smaller).
 - Importing a file whose transactions already exist now **updates their categories** (matched by Stable import ID) after showing the count. Amounts, dates and balances are never changed; blank categories never erase existing ones.
 
