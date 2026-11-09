@@ -1,7 +1,30 @@
 # Changelog
 
-## v0.3.0-beta.2 (unreleased)
+## v0.3.0
 
+First stable release of v0.3. **Back up your ledger before upgrading** (Save backup). Installers and updates only replace program files; your ledger and backups are never touched.
+
+### Highlights
+- **Native installers**: Windows Setup (per-user, no administrator rights needed) and Ubuntu/Debian `.deb`, alongside portable ZIPs. An **experimental macOS `.dmg`** (Apple Silicon) is included.
+- **In-app updates**: GlassBalance checks for new stable releases, shows the release notes, downloads with a progress bar, verifies the SHA-256 checksum, backs up your ledger and installs, then restarts. Clear messages when offline.
+- **Categories**: set them in the New/Edit transaction dialog (the last category used for the same description is suggested). **Categories & charts** shows spending per category; double-click a category or bar to list its transactions and re-categorize them.
+- **Money in · out · net** card with date ranges (this month, last month, last 3 months, this/last year, all time, custom). Categories & charts follows the same range.
+- **Recurring templates** for rent, salary and subscriptions: posted only after you confirm, at most once per month.
+- **Undo deletion** of the most recent transaction in the current session, including its comment and category.
+- Import of an exported file now **updates categories** of existing transactions without touching amounts. Exports default to a dated name such as `glassbalance-export_8nov2026.xlsx`.
+- From the v0.3 previews: Dark/Light/System appearance with custom accent colors, description autocomplete, transaction comments, right-click actions, Unbalanced improvements.
+
+### Fixes
+- Update checks never detected a new version in earlier builds. **Download v0.3.0 once from the Releases page**; later updates install from inside the app.
+- Deleting a transaction tracked in Unbalanced silently erased its loan history; such transactions now must be unlinked first.
+- Restoring an older backup recreates missing feature tables; Light mode amounts are readable; Linux scripts are executable after cloning; editing on Ubuntu with large ledgers no longer freezes.
+
+### Known limitations
+- macOS build is experimental, Apple Silicon only, and not notarized: on first launch use System Settings → Privacy & Security → **Open Anyway**.
+- Windows builds are unsigned; SmartScreen may ask you to choose **More info → Run anyway**.
+- Undo covers the most recent deletion in the current session only. Comments are not included in CSV/XLSX exports.
+
+### Changes since v0.3.0-beta.1
 - **Category field** in the New and Edit transaction dialogs. New transactions suggest the category last used for the same description; your own choice is never overridden. The separate right-click item and Set category button were removed.
 - Double-click a category (table row or chart bar) on Categories & charts to list its transactions for the selected date range, with in/out/net totals; move any of them to another category from that list.
 - Fixed: `run-linux.sh`, `app.py` and the Linux install/uninstall scripts were not executable after cloning.

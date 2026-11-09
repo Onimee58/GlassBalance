@@ -747,7 +747,8 @@ class Window(QMainWindow):
         sidebar.addWidget(label("●  LOCAL & OFFLINE","overline"))
         sidebar.addWidget(label("Your ledger stays on this device unless you choose to share a backup.","muted",True))
         sidebar.addSpacing(6)
-        sidebar.addWidget(label(f"v{__version__}  ·  DEVELOPMENT PREVIEW","muted"))
+        channel="  ·  PRE-RELEASE" if "-" in __version__ else ""
+        sidebar.addWidget(label(f"v{__version__}{channel}","muted"))
         root.addWidget(left)
 
         main=QWidget()
