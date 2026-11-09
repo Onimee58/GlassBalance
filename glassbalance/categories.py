@@ -78,3 +78,18 @@ def summary(conn, start=None, end=None) -> list[dict]:
         ORDER BY expense DESC, income DESC, category COLLATE NOCASE
     ''', (UNCATEGORIZED, lo, lo, hi, hi, UNCATEGORIZED)).fetchall()
     return [{"category": str(r[0]), "income": int(r[1]), "expense": int(r[2]), "count": int(r[3])} for r in rows]
+
+
+def transactions_in(conn, category: str, start=None, end=None) -> list[dict]:
+    """Transactions in one category (Uncategorized = no category), newest first.
+    Optional inclusive start/end dates, matching summary()."""
+    lo = start.isoformat() if hasattr(start, "isoformat") else start
+    hi = end.isoformat() if hasattr(end, "isoformat") else end
+    rows = conn.execute('''
+        SELECT t.id, t.tx_date, t.description, t.amount_mills
+        FROM transactions t LEFT JOIN transaction_categories c ON c.transaction_id=t.id
+        WHERE COALESCE(c.category, ?) = ?
+          AND (? IS NULL OR t.tx_date >= ?) AND (? IS NULL OR t.tx_date <= ?)
+        ORDER BY t.tx_date DESC, t.id DESC
+    ''', (UNCATEGORIZED, category, lo, lo, hi, hi)).fetchall()
+    return [{"id": int(r[0]), "date": r[1], "description": r[2], "mills": int(r[3])} for r in rows]

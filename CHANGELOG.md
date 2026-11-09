@@ -2,6 +2,7 @@
 
 ## v0.3.0-beta.2 (unreleased)
 
+- Double-click a category (table row or chart bar) on Categories & charts to list its transactions for the selected date range, with in/out/net totals; move any of them to another category from that list.
 - Fixed: `run-linux.sh`, `app.py` and the Linux install/uninstall scripts were not executable after cloning.
 - Exports default to a dated name, e.g. `glassbalance-export_8nov2026.xlsx`.
 - About shows the maintainer photo bundled in the app; the local picture picker and the build-time avatar download were removed (installers are ~1.8 MB smaller).

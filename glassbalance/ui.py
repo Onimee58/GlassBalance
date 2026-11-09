@@ -10,7 +10,7 @@ import json
 from datetime import date, datetime
 from pathlib import Path
 
-from PySide6.QtCore import QDate, QSettings, Qt, QStandardPaths, QTimer, QUrl, QSignalBlocker
+from PySide6.QtCore import QDate, QSettings, Qt, QStandardPaths, QTimer, QUrl, QSignalBlocker, Signal
 from PySide6.QtGui import QColor, QFont, QIcon, QLinearGradient, QPainter, QPen, QRadialGradient, QPixmap, QDesktopServices, QAction
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from . import update_check
@@ -169,6 +169,7 @@ class BalanceChart(QWidget):
 class CategoryChart(QWidget):
     """Native horizontal bar chart of expenses per category. No web or plotting dependency."""
     MAX_BARS = 10
+    categoryActivated = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -176,6 +177,7 @@ class CategoryChart(QWidget):
         self.theme_mode="dark"
         self.setMinimumHeight(100)
         self.setAccessibleName("Expenses by category")
+        self.setToolTip("Double-click a bar to list its transactions")
 
     def set_rows(self, rows):
         rows=[r for r in rows if r["expense"]>0]
@@ -186,6 +188,11 @@ class CategoryChart(QWidget):
         self.rows=rows
         self.setMinimumHeight(max(100,len(rows)*30+20))
         self.update()
+
+    def mouseDoubleClickEvent(self, event):
+        index=int((event.position().y()-10)//30)
+        if 0<=index<len(self.rows) and not self.rows[index]["category"].startswith("Other ("):
+            self.categoryActivated.emit(self.rows[index]["category"])
 
     def paintEvent(self, event):
         painter=QPainter(self)
@@ -463,6 +470,78 @@ class EmailDialog(QDialog):
             self.accept()
         except Exception as exc:
             error(self,"Email restore failed",exc)
+
+
+class CategoryListDialog(QDialog):
+    """All transactions in one category for the selected date range. Read-only except for
+    re-categorizing, which never changes amounts or balances."""
+    def __init__(self, window, category: str):
+        super().__init__(window)
+        self.window_ref=window
+        self.category=category
+        self.setWindowTitle(f"{category} · transactions")
+        self.resize(640,520)
+        outer=QVBoxLayout(self)
+        outer.setContentsMargins(22,20,22,18)
+        outer.setSpacing(10)
+        self.title=label(category,"section")
+        self.caption=label("","muted",True)
+        outer.addWidget(self.title)
+        outer.addWidget(self.caption)
+        self.table=QTableWidget(0,3)
+        self.table.setHorizontalHeaderLabels(["DATE","DESCRIPTION","AMOUNT"])
+        window._setup_table(self.table)
+        header=self.table.horizontalHeader()
+        header.setSectionResizeMode(1,QHeaderView.ResizeMode.Stretch)
+        for col,w in ((0,110),(2,130)):
+            header.setSectionResizeMode(col,QHeaderView.ResizeMode.Interactive)
+            header.resizeSection(col,w)
+        self.table.setToolTip("Double-click a transaction to change its category")
+        outer.addWidget(self.table,1)
+        row=QHBoxLayout()
+        row.addWidget(label("Double-click or use Change category… to move a transaction.","muted"),1)
+        self.change=button("Change category…")
+        self.change.setEnabled(False)
+        close=button("Close","primary")
+        row.addWidget(self.change)
+        row.addWidget(close)
+        outer.addLayout(row)
+        close.clicked.connect(self.accept)
+        self.change.clicked.connect(self.change_selected)
+        self.table.cellDoubleClicked.connect(lambda *_: self.change_selected())
+        self.table.itemSelectionChanged.connect(
+            lambda: self.change.setEnabled(self.table.selectionModel().hasSelection()))
+        self.reload()
+
+    def reload(self):
+        start,end=self.window_ref.selected_period()
+        rows=categories.transactions_in(self.window_ref.db.conn,self.category,start,end)
+        money_in=sum(r["mills"] for r in rows if r["mills"]>0)
+        money_out=sum(-r["mills"] for r in rows if r["mills"]<0)
+        noun="transaction" if len(rows)==1 else "transactions"
+        self.title.setText(f"{self.category}  ·  {len(rows):,} {noun}")
+        self.caption.setText(f"{periods.describe(start,end)}  ·  In {display_money(money_in)}  ·  "
+                             f"Out {display_money(-money_out)}  ·  Net {display_money(money_in-money_out)}")
+        self.table.setRowCount(len(rows))
+        for i,r in enumerate(rows):
+            for col,value in enumerate((r["date"],r["description"],display_money(r["mills"]))):
+                item=QTableWidgetItem(value)
+                item.setData(Qt.ItemDataRole.UserRole,r["id"])
+                if col==2:
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignVCenter)
+                    item.setForeground(self.window_ref.tone("in" if r["mills"]>=0 else "out"))
+                self.table.setItem(i,col,item)
+        self.change.setEnabled(False)
+
+    def change_selected(self):
+        row=self.table.currentRow()
+        item=self.table.item(row,0) if row>=0 else None
+        if item is None:
+            return
+        tx_id=item.data(Qt.ItemDataRole.UserRole)
+        entry=next((e for e in self.window_ref.all_entries if e.id==tx_id),None)
+        if entry is not None and self.window_ref.choose_category(entry,parent=self):
+            self.reload()
 
 
 class RecurringDialog(QDialog):
@@ -858,10 +937,14 @@ class Window(QMainWindow):
         self._setup_table(self.cat_table)
         ch=self.cat_table.horizontalHeader()
         ch.setSectionResizeMode(0,QHeaderView.ResizeMode.Stretch)
-        for col,w in ((1,112),(2,118),(3,118),(4,64)):
+        for col,w in ((1,112),(2,118),(3,118),(4,76)):
             ch.setSectionResizeMode(col,QHeaderView.ResizeMode.Interactive)
             ch.resizeSection(col,w)
         split.addWidget(self.cat_table,6)
+        self.cat_table.setToolTip("Double-click a category to list its transactions")
+        self.cat_table.cellDoubleClicked.connect(
+            lambda row,_col: self.open_category_list(self.cat_table.item(row,0).text() if self.cat_table.item(row,0) else ""))
+        self.category_chart.categoryActivated.connect(self.open_category_list)
         ct.addLayout(split,1)
         self.tabs.addTab(self.categories_tab,"Categories && charts")
 
@@ -1384,23 +1467,29 @@ class Window(QMainWindow):
         except Exception as exc:
             error(self,"Unable to remove template",exc)
 
-    def choose_category(self,entry):
+    def choose_category(self,entry,parent=None):
         current=self.db.category(entry.id) or categories.UNCATEGORIZED
         options=[categories.UNCATEGORIZED]+[n for n in categories.names(self.db.conn)]
         if current not in options:
             options.append(current)
-        name,ok=QInputDialog.getItem(self,"Set category",f"Category for '{entry.description}':\n"
+        name,ok=QInputDialog.getItem(parent or self,"Set category",f"Category for '{entry.description}':\n"
                                      "(choose or type a new one; balances are not affected)",
                                      options,options.index(current),True)
         if not ok:
-            return
+            return False
         try:
             self.db.set_category(entry.id,name)
             self.render_transactions()
             self.render_categories()
             self.render_recurring()
+            return True
         except Exception as exc:
-            error(self,"Unable to set category",exc)
+            error(parent or self,"Unable to set category",exc)
+            return False
+
+    def open_category_list(self, category: str):
+        if category:
+            CategoryListDialog(self,category).exec()
 
     def set_selected_category(self):
         entry=next((e for e in self.all_entries if e.id==self.selected_id()),None)

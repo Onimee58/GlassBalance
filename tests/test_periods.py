@@ -60,3 +60,22 @@ class TotalsTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CategoryDrillDownTests(unittest.TestCase):
+    def test_transactions_in_matches_summary(self):
+        db = Ledger()
+        db.set_opening(0, "2026-01-01")
+        a = db.add("2026-02-01", "Rent", -1_200_000)
+        db.add("2026-02-05", "Kroger", -50_000)
+        c = db.add("2026-03-01", "Rent", -1_200_000)
+        db.set_category(a, "Housing"); db.set_category(c, "Housing")
+        rows = categories.transactions_in(db.conn, "Housing")
+        self.assertEqual([r["id"] for r in rows], [c, a])                 # newest first
+        self.assertEqual([r["id"] for r in categories.transactions_in(db.conn, "Housing", date(2026, 2, 1), "2026-02-28")], [a])
+        self.assertEqual(len(categories.transactions_in(db.conn, "Uncategorized")), 1)
+        for row in categories.summary(db.conn, date(2026, 2, 1), date(2026, 3, 31)):
+            listed = categories.transactions_in(db.conn, row["category"], date(2026, 2, 1), date(2026, 3, 31))
+            self.assertEqual(len(listed), row["count"])
+            self.assertEqual(sum(r["mills"] for r in listed), row["income"] - row["expense"])
+        db.close()
