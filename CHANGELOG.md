@@ -2,6 +2,7 @@
 
 ## v0.3.0-beta.2 (unreleased)
 
+- **Category field** in the New and Edit transaction dialogs. New transactions suggest the category last used for the same description; your own choice is never overridden. The separate right-click item and Set category button were removed.
 - Double-click a category (table row or chart bar) on Categories & charts to list its transactions for the selected date range, with in/out/net totals; move any of them to another category from that list.
 - Fixed: `run-linux.sh`, `app.py` and the Linux install/uninstall scripts were not executable after cloning.
 - Exports default to a dated name, e.g. `glassbalance-export_8nov2026.xlsx`.

@@ -93,3 +93,17 @@ def transactions_in(conn, category: str, start=None, end=None) -> list[dict]:
         ORDER BY t.tx_date DESC, t.id DESC
     ''', (UNCATEGORIZED, category, lo, lo, hi, hi)).fetchall()
     return [{"id": int(r[0]), "date": r[1], "description": r[2], "mills": int(r[3])} for r in rows]
+
+
+def suggest(conn, description: str) -> str:
+    """Category most recently used for the same description (case/space-insensitive), or ''."""
+    key = " ".join(str(description or "").split()).casefold()
+    if not key:
+        return ""
+    for desc, category in conn.execute('''
+            SELECT t.description, c.category FROM transactions t
+            JOIN transaction_categories c ON c.transaction_id=t.id
+            ORDER BY t.tx_date DESC, t.id DESC'''):
+        if " ".join(desc.split()).casefold() == key:
+            return str(category)
+    return ""

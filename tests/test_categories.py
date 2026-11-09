@@ -94,3 +94,15 @@ class CategoryReimportTests(unittest.TestCase):
         self.assertEqual((db.category(a),db.category(b),db.category(c)),('groceries','Income','Housing'))
         self.assertEqual((db.balance(),[(e.id,e.date,e.mills,e.running_mills) for e in db.entries()]),before)
         db.close()
+
+
+class SuggestTests(unittest.TestCase):
+    def test_suggest_uses_latest_matching_description(self):
+        db=Ledger()
+        a=db.add('2026-10-01','Kroger',-1000); db.set_category(a,'Groceries')
+        b=db.add('2026-10-05','  kroger ',-2000); db.set_category(b,'Food')
+        db.add('2026-10-06','Kroger',-3000)          # newest but uncategorized: ignored
+        self.assertEqual(categories.suggest(db.conn,'KROGER'),'Food')
+        self.assertEqual(categories.suggest(db.conn,'kroger and laundry'),'')
+        self.assertEqual(categories.suggest(db.conn,''),'')
+        db.close()

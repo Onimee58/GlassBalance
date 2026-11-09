@@ -279,8 +279,11 @@ def make_completer(values, parent):
 
 
 class TransactionDialog(QDialog):
-    def __init__(self,parent=None,entry: Entry|None=None, suggestions=None):
+    def __init__(self,parent=None,entry: Entry|None=None, suggestions=None,
+                 category_names=(), current_category: str = "", suggest_category=None):
         super().__init__(parent)
+        self.suggest_category=suggest_category
+        self._category_touched=bool(entry)   # never auto-change an existing transaction's category
         self.setWindowTitle("Edit transaction" if entry else "New transaction")
         self.setMinimumWidth(410)
         outer=QVBoxLayout(self)
@@ -303,10 +306,19 @@ class TransactionDialog(QDialog):
         self.status=QComboBox()
         self.status.addItems(["Confirmed", "Estimated"])
         self.status.setCurrentText(entry.date_status.title() if entry else "Confirmed")
+        self.category=QComboBox()
+        self.category.setEditable(True)
+        self.category.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.category.addItems([categories.UNCATEGORIZED]+[n for n in category_names])
+        self.category.setCurrentText(current_category or categories.UNCATEGORIZED)
+        self.category.setToolTip("Choose or type a category. Categories never change balances.")
+        self.category.lineEdit().textEdited.connect(self._mark_category_touched)
+        self.category.activated.connect(self._mark_category_touched)
         form.addRow("Description",self.name)
         form.addRow("Signed amount",self.amount)
         form.addRow("Date",self.date)
         form.addRow("Date accuracy",self.status)
+        form.addRow("Category",self.category)
         outer.addLayout(form)
         outer.addWidget(label("Imported historical dates are estimated until you confirm them.","muted",True))
         actions=QDialogButtonBox(QDialogButtonBox.StandardButton.Save|QDialogButtonBox.StandardButton.Cancel)
@@ -315,7 +327,21 @@ class TransactionDialog(QDialog):
         outer.addWidget(actions)
         # A manual date adjustment confirms it automatically.
         self.date.dateChanged.connect(lambda _:self.status.setCurrentText("Confirmed"))
+        self.name.editingFinished.connect(self._suggest_category)
+        if self.name.completer() is not None:
+            self.name.completer().activated.connect(lambda _text: self._suggest_category())
         self.name.setFocus()
+
+    def _mark_category_touched(self, *_args):
+        self._category_touched=True
+
+    def _suggest_category(self):
+        """For new transactions, reuse the category last used with the same description."""
+        if self._category_touched or self.suggest_category is None:
+            return
+        suggestion=self.suggest_category(self.name.text())
+        if suggestion:
+            self.category.setCurrentText(suggestion)
 
     def validate(self):
         try:
@@ -330,6 +356,7 @@ class TransactionDialog(QDialog):
             self.checked_date=self.date.date().toString(Qt.DateFormat.ISODate)
             self.checked_status=self.status.currentText().lower()
             self.checked_name=name
+            self.checked_category=categories.clean(self.category.currentText())  # validates length
         except ValueError as exc:
             error(self,"Check transaction",exc)
             return
@@ -977,10 +1004,9 @@ class Window(QMainWindow):
         self.undo_button.setEnabled(False)
         self.undo_button.setToolTip("Restore the last deleted transaction (this session only)")
         bottom.addWidget(self.undo_button)
-        self.category_button=button("Set category")
         self.edit_button=button("Edit selection")
         self.delete_button=button("Delete","danger")
-        for b in (self.category_button,self.edit_button,self.delete_button):
+        for b in (self.edit_button,self.delete_button):
             b.setEnabled(False)
             bottom.addWidget(b)
         activity_layout.addLayout(bottom)
@@ -1007,7 +1033,6 @@ class Window(QMainWindow):
         self.period_to.dateChanged.connect(self.render_period)
         self.nav_recurring.clicked.connect(lambda:self.navigate(5))
         self.undo_button.clicked.connect(self.undo_deletion)
-        self.category_button.clicked.connect(self.set_selected_category)
         self.rec_add.clicked.connect(self.add_recurring)
         self.rec_post.clicked.connect(self.post_recurring)
         self.rec_remove.clicked.connect(self.remove_recurring)
@@ -1491,11 +1516,6 @@ class Window(QMainWindow):
         if category:
             CategoryListDialog(self,category).exec()
 
-    def set_selected_category(self):
-        entry=next((e for e in self.all_entries if e.id==self.selected_id()),None)
-        if entry is not None:
-            self.choose_category(entry)
-
     def undo_deletion(self):
         snapshot=getattr(self,"last_deleted",None)
         if not snapshot:
@@ -1692,7 +1712,6 @@ class Window(QMainWindow):
         menu=QMenu(self)
         edit=menu.addAction("Edit transaction")
         note=menu.addAction("Add / edit comment")
-        category=menu.addAction("Set category…")
         similar=menu.addAction("Find matching transactions")
         track=menu.addAction("Track as lending / borrowing")
         repayment=menu.addAction("Link as repayment…")
@@ -1701,7 +1720,6 @@ class Window(QMainWindow):
         picked=menu.exec(self.table.viewport().mapToGlobal(position))
         if picked==edit: self.edit_transaction()
         elif picked==note: self.edit_comment(entry)
-        elif picked==category: self.choose_category(entry)
         elif picked==similar:
             keyword=entry.description.strip().split()[0] if entry.description.strip() else ""
             self.balance_query.setText(keyword)
@@ -1759,13 +1777,16 @@ class Window(QMainWindow):
         enabled=self.selected_id() is not None
         self.edit_button.setEnabled(enabled)
         self.delete_button.setEnabled(enabled)
-        self.category_button.setEnabled(enabled)
 
     def add_transaction(self):
-        dialog=TransactionDialog(self, suggestions=self.description_suggestions())
+        dialog=TransactionDialog(self, suggestions=self.description_suggestions(),
+                                 category_names=categories.names(self.db.conn),
+                                 suggest_category=lambda d: categories.suggest(self.db.conn,d))
         if dialog.exec()==QDialog.DialogCode.Accepted:
             try:
-                self.db.add(dialog.checked_date,dialog.checked_name,dialog.checked_mills,dialog.checked_status)
+                tx_id=self.db.add(dialog.checked_date,dialog.checked_name,dialog.checked_mills,dialog.checked_status)
+                if dialog.checked_category:
+                    self.db.set_category(tx_id,dialog.checked_category)
                 self.refresh()
                 self.statusBar().showMessage("Transaction saved locally.",5000)
             except Exception as exc:
@@ -1776,11 +1797,14 @@ class Window(QMainWindow):
         entry=next((e for e in self.all_entries if e.id==chosen),None)
         if entry is None:
             return
-        dialog=TransactionDialog(self,entry, suggestions=self.description_suggestions())
+        dialog=TransactionDialog(self,entry, suggestions=self.description_suggestions(),
+                                 category_names=categories.names(self.db.conn),
+                                 current_category=self.db.category(entry.id))
         if dialog.exec()==QDialog.DialogCode.Accepted:
             try:
                 self.db.edit(entry.id,dialog.checked_date,dialog.checked_name,
                              dialog.checked_mills,dialog.checked_status)
+                self.db.set_category(entry.id,dialog.checked_category)
                 self.refresh()
                 self.statusBar().showMessage("Transaction updated; running balances recalculated.",5000)
             except Exception as exc:
